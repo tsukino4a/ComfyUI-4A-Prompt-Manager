@@ -121,15 +121,16 @@ class PromptScheduler4A:
                     track_id=track["id"],
                     resolver=resolver,
                 )
-                if expanded.text.strip():
+                track_prompt = wc.cleanup_prompt_commas(expanded.text)
+                if track_prompt.strip():
                     resolved_tracks.append(
                         {
                             "id": track["id"],
                             "name": track["name"],
-                            "text": expanded.text,
+                            "text": track_prompt,
                         }
                     )
-                    positive_parts.append(expanded.text)
+                    positive_parts.append(track_prompt)
                 for negative_index, selected_negative in enumerate(expanded.negatives):
                     negative_result = wc.expand_prompt(
                         selected_negative,

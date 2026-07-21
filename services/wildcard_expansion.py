@@ -168,15 +168,26 @@ def expand_prompt(
     )
 
 
+def cleanup_prompt_commas(text: str) -> str:
+    """Drop empty comma slots (e.g. 'a,,b' / 'a, , b'); keep author newlines."""
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    cleaned = re.sub(r",(?:\s*,)+", ",", text)
+    cleaned = re.sub(r"^(?:\s*,\s*)+|(?:\s*,\s*)+$", "", cleaned)
+    return cleaned
+
+
 def join_positive_parts(*parts: str) -> str:
-    """Join non-empty prompt parts with a blank line between sections."""
-    cleaned = [p.strip() for p in parts if isinstance(p, str) and p.strip()]
+    """Join non-empty prompt parts; keep author newlines, no extra blank lines."""
+    cleaned = [
+        part
+        for part in (cleanup_prompt_commas(p) for p in parts if isinstance(p, str))
+        if part.strip()
+    ]
     if not cleaned:
         return ""
-
     joined = cleaned[0]
     for part in cleaned[1:]:
-        # Keep a comma between tag groups; blank line is only for readability.
-        glue = "\n\n" if joined.rstrip().endswith(",") else ",\n\n"
+        glue = " " if joined.rstrip().endswith(",") else ", "
         joined += glue + part
-    return joined
+    return cleanup_prompt_commas(joined)
