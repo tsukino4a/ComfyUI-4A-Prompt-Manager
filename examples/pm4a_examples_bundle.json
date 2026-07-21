@@ -1,0 +1,39 @@
+{
+  "format": "pm4a-prompt-bundle",
+  "source_folder": "examples",
+  "prompt_count": 4,
+  "prompts": [
+    {
+      "storage": "json",
+      "title": "portrait_soft",
+      "relative_path": "examples/portrait_soft",
+      "content": "soft portrait, gentle smile, looking at viewer, studio lighting, detailed eyes",
+      "negative": "lowres, bad anatomy, extra fingers, blurry",
+      "note": "JSON card example: portrait subject tags with a short negative."
+    },
+    {
+      "storage": "json",
+      "title": "outdoor_day",
+      "relative_path": "examples/outdoor_day",
+      "content": "sunny outdoor scene, park path, green trees, blue sky, natural light",
+      "negative": "night, indoor, rain, fog, overcast",
+      "note": "JSON card example: simple outdoor environment."
+    },
+    {
+      "storage": "txt",
+      "title": "scenes",
+      "relative_path": "examples/scenes",
+      "content": "# Traditional TXT wildcard: one short scene option per line\nin a quiet cafe\non a rainy street\nat the beach at dusk\n",
+      "negative": "",
+      "note": ""
+    },
+    {
+      "storage": "txt",
+      "title": "actions",
+      "relative_path": "examples/actions",
+      "content": "# Traditional TXT wildcard: one short action option per line\nwalking casually\nsitting on a bench\nlooking back over the shoulder\n",
+      "negative": "",
+      "note": ""
+    }
+  ]
+}

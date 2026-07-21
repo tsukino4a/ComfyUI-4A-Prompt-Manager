@@ -1,0 +1,133 @@
+{
+  "Prompt Scheduler (4A Prompt Manager)": {
+    "display_name": "Prompt Scheduler (4A Prompt Manager)",
+    "description": "Expands folder wildcard prompts sequentially or randomly for each batch item, then outputs positive, negative, and structured prompt data.",
+    "inputs": {
+      "config_json": {"name": "Scheduler Config JSON", "tooltip": "Configuration JSON for the frontend prompt columns and negative prompt."},
+      "execution_index": {"name": "Execution Index", "tooltip": "Zero-based position of this execution within the batch."},
+      "run_id": {"name": "Run ID", "tooltip": "Run identifier that keeps the folder snapshot consistent within a batch."},
+      "seed": {"name": "Seed", "tooltip": "Random seed used to select wildcard content deterministically."}
+    },
+    "outputs": {
+      "0": {"name": "Positive Prompt", "tooltip": "Expanded and combined positive prompt."},
+      "1": {"name": "Negative Prompt", "tooltip": "Expanded and combined negative prompt."},
+      "2": {"name": "Prompt JSON", "tooltip": "JSON containing resolved prompt columns and positive and negative prompts."}
+    }
+  },
+  "Prompt Display (4A Prompt Manager)": {
+    "display_name": "Meta Loader (4A Prompt Manager)",
+    "description": "Loads prompt, inference, and LoRA metadata from images, then displays resolved columns as selectable read-only text.",
+    "inputs": {
+      "imported_json": {"name": "Imported JSON", "tooltip": "Prompt metadata JSON imported from an image or external source."},
+      "prompt_json": {"name": "Prompt JSON", "tooltip": "Live prompt JSON connected from Prompt Scheduler."}
+    }
+  },
+  "Meta Apply (4A Prompt Manager)": {
+    "display_name": "Meta Apply (4A Prompt Manager)",
+    "description": "Drop or pick an image to automatically apply detected positive/negative prompts, models, generation parameters, double-sample parameters, and LoRA text to the current workflow.",
+    "inputs": {
+      "image": {"name": "image", "tooltip": "Choose or upload an image; all recognized metadata is applied automatically."}
+    }
+  },
+  "Input Parameters (4A Prompt Manager)": {
+    "display_name": "Input Parameters (4A Prompt Manager)",
+    "description": "Outputs sampler parameters, independent width and height values, and portable JSON metadata. The ratio preset only provides one-shot frontend sizing.",
+    "inputs": {
+      "seed": {"name": "Seed", "tooltip": "Random seed used for generation."},
+      "steps": {"name": "Steps", "tooltip": "Number of sampling iterations."},
+      "cfg": {"name": "CFG", "tooltip": "Prompt guidance strength."},
+      "sampler": {"name": "Sampler", "tooltip": "Sampling algorithm."},
+      "scheduler": {"name": "Scheduler", "tooltip": "Sampling noise scheduler."},
+      "denoise": {"name": "Denoise", "tooltip": "Denoising strength."},
+      "ratio": {
+        "name": "Ratio Preset",
+        "tooltip": "Aspect-ratio preset used by the frontend to set width and height once.",
+        "options": {
+          "1:1 方形": "1:1 Square",
+          "4:3 横图": "4:3 Landscape",
+          "3:4 竖图": "3:4 Portrait",
+          "3:2 横图": "3:2 Landscape",
+          "2:3 竖图": "2:3 Portrait",
+          "16:9 横图": "16:9 Landscape",
+          "9:16 竖图": "9:16 Portrait",
+          "5:4 横图": "5:4 Landscape",
+          "4:5 竖图": "4:5 Portrait",
+          "5:3 横图": "5:3 Landscape",
+          "3:5 竖图": "3:5 Portrait",
+          "7:4 横图": "7:4 Landscape",
+          "4:7 竖图": "4:7 Portrait",
+          "2:1 横图": "2:1 Landscape",
+          "1:2 竖图": "1:2 Portrait",
+          "21:9 超宽": "21:9 Ultrawide",
+          "9:21 超长": "9:21 Ultra-tall"
+        }
+      },
+      "width": {"name": "Width", "tooltip": "Output image width, rounded to a multiple of 8."},
+      "height": {"name": "Height", "tooltip": "Output image height, rounded to a multiple of 8."}
+    },
+    "outputs": {
+      "0": {"name": "Seed", "tooltip": "Random seed used for generation."},
+      "1": {"name": "Steps", "tooltip": "Number of sampling iterations."},
+      "2": {"name": "CFG", "tooltip": "Prompt guidance strength."},
+      "3": {"name": "Sampler", "tooltip": "Selected sampling algorithm."},
+      "4": {"name": "Scheduler", "tooltip": "Selected noise scheduler."},
+      "5": {"name": "Denoise", "tooltip": "Selected denoising strength."},
+      "6": {"name": "Width", "tooltip": "Output image width."},
+      "7": {"name": "Height", "tooltip": "Output image height."},
+      "8": {"name": "Parameters JSON", "tooltip": "Portable JSON metadata containing the primary sampling parameters."}
+    }
+  },
+  "Double Sample Parameters (4A Prompt Manager)": {
+    "display_name": "Double Sample Parameters (4A Prompt Manager)",
+    "description": "Outputs second-pass sampler parameters and self-identifying JSON for Image Saver's parameters_json input.",
+    "inputs": {
+      "seed": {"name": "Seed", "tooltip": "Random seed used for the second sampling pass."},
+      "steps": {"name": "Steps", "tooltip": "Number of iterations for the second sampling pass."},
+      "cfg": {"name": "CFG", "tooltip": "Prompt guidance strength for the second sampling pass."},
+      "sampler": {"name": "Sampler", "tooltip": "Second-pass sampling algorithm."},
+      "scheduler": {"name": "Scheduler", "tooltip": "Second-pass noise scheduler."},
+      "denoise": {"name": "Denoise", "tooltip": "Denoising strength for the second sampling pass."}
+    },
+    "outputs": {
+      "0": {"name": "Seed", "tooltip": "Random seed used for the second sampling pass."},
+      "1": {"name": "Steps", "tooltip": "Number of iterations for the second sampling pass."},
+      "2": {"name": "CFG", "tooltip": "Prompt guidance strength for the second sampling pass."},
+      "3": {"name": "Sampler", "tooltip": "Selected second-pass sampling algorithm."},
+      "4": {"name": "Scheduler", "tooltip": "Selected second-pass noise scheduler."},
+      "5": {"name": "Denoise", "tooltip": "Selected second-pass denoising strength."},
+      "6": {"name": "Parameters JSON", "tooltip": "Portable JSON metadata containing second-pass sampling parameters."}
+    }
+  },
+  "Image Saver (4A Prompt Manager)": {
+    "display_name": "Image Saver (4A Prompt Manager)",
+    "description": "Independent Image Saver Simple-style output with exact generation parameters and automatic model, LoRA, and embedding hashes.",
+    "inputs": {
+      "images": {"name": "Images", "tooltip": "Image(s) to save."},
+      "filename": {"name": "Filename", "tooltip": "Same filename variables as Image Saver Simple."},
+      "path": {"name": "Path", "tooltip": "Path under ComfyUI's output directory."},
+      "extension": {"name": "Extension", "tooltip": "File format used to save the images."},
+      "lossless_webp": {"name": "Lossless WebP", "tooltip": "Use lossless compression when saving WebP images."},
+      "quality_jpeg_or_webp": {"name": "JPEG/WebP Quality", "tooltip": "Image quality for JPEG or WebP output."},
+      "optimize_png": {"name": "Optimize PNG", "tooltip": "Optimize PNG files while saving."},
+      "embed_workflow": {"name": "Embed Workflow", "tooltip": "Embed ComfyUI workflow data in supported image formats."},
+      "save_workflow_as_json": {"name": "Save Workflow as JSON", "tooltip": "Also save the workflow as a JSON sidecar file."},
+      "model_name": {"name": "Model Name", "tooltip": "Checkpoint or UNet filename; its SHA256 is resolved automatically."},
+      "loaded_loras": {"name": "Loaded LoRAs", "tooltip": "Lora Manager loaded_loras output."},
+      "prompt_json": {"name": "Prompt JSON", "tooltip": "Prompt Scheduler prompt_json output."},
+      "parameters_json": {"name": "Parameters JSON", "tooltip": "Concatenated Input Parameters and Double Sample Parameters JSON."},
+      "custom": {"name": "Custom", "tooltip": "Custom text appended to A1111 metadata."},
+      "counter": {"name": "Counter", "tooltip": "Incrementing counter available to filename variables."},
+      "time_format": {"name": "Time Format", "tooltip": "strftime format used by time filename variables."},
+      "show_preview": {"name": "Show Preview", "tooltip": "Show an image preview in ComfyUI after saving."}
+    },
+    "outputs": {
+      "0": {"name": "Resource Hashes", "tooltip": "Resolved model, LoRA and embedding hashes"},
+      "1": {"name": "A1111 Parameters", "tooltip": "A1111-compatible parameters written to the image"}
+    }
+  },
+  "Prompt Manager Browser (4A Prompt Manager)": {
+    "display_name": "Prompt Manager Browser (4A Prompt Manager)",
+    "description": "Displays the existing 4A Prompt Manager interface inside the ComfyUI canvas. This UI-only node does not participate in execution.",
+    "inputs": {}
+  }
+}

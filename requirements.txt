@@ -1,0 +1,2 @@
+# ComfyUI supplies Pillow, NumPy and aiohttp.
+piexif>=1.1.3

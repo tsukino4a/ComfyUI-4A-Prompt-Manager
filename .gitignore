@@ -1,0 +1,42 @@
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Local AI planning artifacts
+.superpowers/
+docs/superpowers/
+
+# Local environments and editor files
+.venv/
+venv/
+.idea/
+.vscode/
+.cursor/
+node_modules/
+*.swp
+.env
+.env.*
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+
+# Machine-local plugin configuration
+config.ini
+
+# User prompt library and migration backups (keep shipped examples)
+wildcards/*
+!wildcards/examples/
+!wildcards/examples/**
+backups/
+.pm4a/

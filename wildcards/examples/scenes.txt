@@ -1,0 +1,4 @@
+# Traditional TXT wildcard: one short scene option per line
+in a quiet cafe
+on a rainy street
+at the beach at dusk

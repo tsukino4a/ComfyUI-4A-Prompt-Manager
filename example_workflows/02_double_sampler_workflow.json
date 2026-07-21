@@ -1,0 +1,1515 @@
+{
+  "id": "05bd8ed2-bb08-4fab-a657-fcba6460900d",
+  "revision": 0,
+  "last_node_id": 392,
+  "last_link_id": 981,
+  "nodes": [
+    {
+      "id": 373,
+      "type": "CLIPLoader",
+      "pos": [
+        -1815.6919343687143,
+        174.3273802304787
+      ],
+      "size": [
+        324.1125950163421,
+        106
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            958,
+            959
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "qwen_3_06b_base.safetensors",
+        "stable_diffusion",
+        "default"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 374,
+      "type": "VAELoader",
+      "pos": [
+        -1801.837084442022,
+        330.85246621447067
+      ],
+      "size": [
+        310,
+        79.328125
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            926,
+            964,
+            965
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "qwen_image_vae.safetensors"
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 385,
+      "type": "UNETLoader",
+      "pos": [
+        -1818.1406204421824,
+        48.48178617786361
+      ],
+      "size": [
+        323.59375,
+        82
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            957,
+            966
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "UNETLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "anima-base-v1.0.safetensors",
+        "fp8_e4m3fn"
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 367,
+      "type": "Input Parameters (4A Prompt Manager)",
+      "pos": [
+        -1773.5743659343132,
+        468.07508958425416
+      ],
+      "size": [
+        274.32889507619484,
+        411
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "seed",
+          "type": "INT",
+          "links": [
+            918,
+            941
+          ]
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "links": [
+            919
+          ]
+        },
+        {
+          "name": "cfg",
+          "type": "FLOAT",
+          "links": [
+            920
+          ]
+        },
+        {
+          "name": "sampler",
+          "type": "COMBO",
+          "links": [
+            921
+          ]
+        },
+        {
+          "name": "scheduler",
+          "type": "COMBO",
+          "links": [
+            922
+          ]
+        },
+        {
+          "name": "denoise",
+          "type": "FLOAT",
+          "links": [
+            923
+          ]
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": [
+            903
+          ]
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": [
+            904
+          ]
+        },
+        {
+          "name": "parameters_json",
+          "type": "STRING",
+          "links": [
+            975
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Input Parameters (4A Prompt Manager)",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        1078467689395595,
+        "randomize",
+        30,
+        4.5,
+        "euler",
+        "simple",
+        1,
+        "4:5 竖图",
+        896,
+        1152,
+        ""
+      ],
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 383,
+      "type": "Prompt Scheduler (4A Prompt Manager)",
+      "pos": [
+        -1468.7187826672837,
+        42.15167674234116
+      ],
+      "size": [
+        586.347478584494,
+        1009.4368339621938
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": 941
+        },
+        {
+          "label": " ",
+          "name": "pm4a_track_7175616c697479",
+          "type": "STRING",
+          "pos": [
+            12.976159076589477,
+            166.84073922142395
+          ],
+          "link": null
+        },
+        {
+          "label": " ",
+          "name": "pm4a_track_636861726163746572",
+          "type": "STRING",
+          "pos": [
+            12.976159076589477,
+            276.0386734132625
+          ],
+          "link": null
+        },
+        {
+          "label": " ",
+          "name": "pm4a_track_616374696f6e",
+          "type": "STRING",
+          "pos": [
+            12.976159076589477,
+            385.2365676426143
+          ],
+          "link": null
+        },
+        {
+          "label": " ",
+          "name": "pm4a_track_7363656e65",
+          "type": "STRING",
+          "pos": [
+            12.976159076589477,
+            494.4345417969394
+          ],
+          "link": null
+        },
+        {
+          "label": " ",
+          "name": "pm4a_track_6e65676174697665",
+          "type": "STRING",
+          "pos": [
+            13.976160359749716,
+            889.8719784923552
+          ],
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "STRING",
+          "links": [
+            943,
+            944
+          ]
+        },
+        {
+          "name": "negative",
+          "type": "STRING",
+          "links": [
+            945,
+            946
+          ]
+        },
+        {
+          "name": "prompt_json",
+          "type": "STRING",
+          "links": [
+            981
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Prompt Scheduler (4A Prompt Manager)",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "{\"start_index\":0,\"task_count\":1,\"negative\":\"\",\"negative_collapsed\":false,\"negative_ui_height\":58,\"tracks\":[{\"id\":\"quality\",\"name\":\"质量\",\"enabled\":true,\"text\":\"\",\"mode\":\"sequence\",\"collapsed\":false,\"ui_height\":54},{\"id\":\"character\",\"name\":\"角色\",\"enabled\":true,\"text\":\"\",\"mode\":\"sequence\",\"collapsed\":false,\"ui_height\":54},{\"id\":\"action\",\"name\":\"动作\",\"enabled\":true,\"text\":\"\",\"mode\":\"sequence\",\"collapsed\":false,\"ui_height\":54},{\"id\":\"scene\",\"name\":\"场景\",\"enabled\":true,\"text\":\"\",\"mode\":\"sequence\",\"collapsed\":false,\"ui_height\":54}]}",
+        0,
+        "",
+        "",
+        0,
+        "randomize"
+      ]
+    },
+    {
+      "id": 376,
+      "type": "EmptyLatentImage",
+      "pos": [
+        -854.5035994381515,
+        319.61339734995477
+      ],
+      "size": [
+        245.39997086260905,
+        106
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 903
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 904
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            917
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyLatentImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        920,
+        1536,
+        1
+      ]
+    },
+    {
+      "id": 378,
+      "type": "CLIPTextEncode",
+      "pos": [
+        -840.1198525984433,
+        53.48983842702722
+      ],
+      "size": [
+        210,
+        88
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 959
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 943
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            915,
+            967
+          ]
+        }
+      ],
+      "title": "Positive",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        ""
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 377,
+      "type": "CLIPTextEncode",
+      "pos": [
+        -842.3466432277178,
+        182.73427968777938
+      ],
+      "size": [
+        210,
+        88
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 958
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 945
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            916,
+            968
+          ]
+        }
+      ],
+      "title": "Negative",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        ""
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 379,
+      "type": "KSampler",
+      "pos": [
+        -564.2974276686534,
+        66.63239721846799
+      ],
+      "size": [
+        234.21875,
+        311.328125
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 957
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 915
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 916
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 917
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": 918
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": 919
+        },
+        {
+          "name": "cfg",
+          "type": "FLOAT",
+          "widget": {
+            "name": "cfg"
+          },
+          "link": 920
+        },
+        {
+          "name": "sampler_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "sampler_name"
+          },
+          "link": 921
+        },
+        {
+          "name": "scheduler",
+          "type": "COMBO",
+          "widget": {
+            "name": "scheduler"
+          },
+          "link": 922
+        },
+        {
+          "name": "denoise",
+          "type": "FLOAT",
+          "widget": {
+            "name": "denoise"
+          },
+          "link": 923
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            925
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        469640606625164,
+        "randomize",
+        12,
+        1,
+        "euler",
+        "beta57",
+        1
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 390,
+      "type": "KSampler",
+      "pos": [
+        74.64348157009532,
+        72.69268984577886
+      ],
+      "size": [
+        210,
+        295.0400688340367
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 966
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 967
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 968
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 963
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": 969
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": 970
+        },
+        {
+          "name": "cfg",
+          "type": "FLOAT",
+          "widget": {
+            "name": "cfg"
+          },
+          "link": 971
+        },
+        {
+          "name": "sampler_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "sampler_name"
+          },
+          "link": 972
+        },
+        {
+          "name": "scheduler",
+          "type": "COMBO",
+          "widget": {
+            "name": "scheduler"
+          },
+          "link": 973
+        },
+        {
+          "name": "denoise",
+          "type": "FLOAT",
+          "widget": {
+            "name": "denoise"
+          },
+          "link": 974
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            962
+          ]
+        }
+      ],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {
+            "seed": true,
+            "steps": true,
+            "cfg": true,
+            "sampler_name": true,
+            "scheduler": true,
+            "denoise": true
+          },
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "Node name for S&R": "KSampler",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "enableTabs": false,
+        "tabWidth": 65,
+        "tabXOffset": 10,
+        "hasSecondTab": false,
+        "secondTabText": "Send Back",
+        "secondTabOffset": 80,
+        "secondTabWidth": 65
+      },
+      "widgets_values": [
+        571928405867150,
+        "randomize",
+        30,
+        4,
+        "er_sde",
+        "simple",
+        0.8
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 391,
+      "type": "VAEDecode",
+      "pos": [
+        307.75171125333264,
+        80.14705294600073
+      ],
+      "size": [
+        162.39168152980437,
+        49.61154660453036
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 962
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 964
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            978
+          ]
+        }
+      ],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "Node name for S&R": "VAEDecode"
+      }
+    },
+    {
+      "id": 389,
+      "type": "VAEEncode",
+      "pos": [
+        -90.00908522778117,
+        75.01551361018657
+      ],
+      "size": [
+        140,
+        50
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "pixels",
+          "type": "IMAGE",
+          "link": 980
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 965
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            963
+          ]
+        }
+      ],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "Node name for S&R": "VAEEncode",
+        "cnr_id": "comfy-core",
+        "ver": "0.12.3"
+      },
+      "color": "#322",
+      "bgcolor": "#533",
+      "shape": 1
+    },
+    {
+      "id": 380,
+      "type": "VAEDecode",
+      "pos": [
+        -298.2345572682624,
+        74.49291791645955
+      ],
+      "size": [
+        168.08364850983594,
+        46
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 925
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 926
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            980
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 388,
+      "type": "StringConcatenate",
+      "pos": [
+        329.28625800674774,
+        220.75384030645915
+      ],
+      "size": [
+        210,
+        166
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "string_a",
+          "type": "STRING",
+          "widget": {
+            "name": "string_a"
+          },
+          "link": 975
+        },
+        {
+          "name": "string_b",
+          "type": "STRING",
+          "widget": {
+            "name": "string_b"
+          },
+          "link": 976
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            979
+          ]
+        }
+      ],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "Node name for S&R": "StringConcatenate"
+      },
+      "widgets_values": [
+        "",
+        "",
+        ""
+      ],
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 392,
+      "type": "Prompt Display (4A Prompt Manager)",
+      "pos": [
+        -840.6698045047781,
+        494.28148761328595
+      ],
+      "size": [
+        700,
+        520
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "prompt_json",
+          "shape": 7,
+          "type": "STRING",
+          "link": 981
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        },
+        "Node name for S&R": "Prompt Display (4A Prompt Manager)"
+      },
+      "widgets_values": [
+        "{\"source_type\":\"4a\",\"source_label\":\"4A\",\"tracks\":[{\"id\":\"positive\",\"name\":\"正面\",\"text\":\"@dd, @sby, @takashima_sh0a, @shuangbatian, @k4nz4r1n, n1rs,masterpiece, score_9, year 2025, highre, nsfw, absurdres, very awa, @yoneyama mai, @dino \\\\(dinoartforame\\\\), @akama chlorine, @z3zz, @fymrie, @john kafka, @rella, @void 0, @lemon89h, @anemoneeanemone, @fouriasensei, 1girl, animal ear fluff, animal ears, balloon, blue eyes, blue hair, bow, box, cake, cat ears, cat girl, dress, food, fork, gift, hair ornament, hairband, heart, heterochromia, holding, long hair, phone, plate, solo, stuffed animal, stuffed toy, twintails\"}],\"positive\":\"@dd, @sby, @takashima_sh0a, @shuangbatian, @k4nz4r1n, n1rs,masterpiece, score_9, year 2025, highre, nsfw, absurdres, very awa, @yoneyama mai, @dino \\\\(dinoartforame\\\\), @akama chlorine, @z3zz, @fymrie, @john kafka, @rella, @void 0, @lemon89h, @anemoneeanemone, @fouriasensei, 1girl, animal ear fluff, animal ears, balloon, blue eyes, blue hair, bow, box, cake, cat ears, cat girl, dress, food, fork, gift, hair ornament, hairband, heart, heterochromia, holding, long hair, phone, plate, solo, stuffed animal, stuffed toy, twintails\",\"negative\":\"worst quality, low quality, bad quality, worst detail, bad detail, lowres, old, censored, bad hands, mutated hands, deformed hands, extra fingers, six fingers, signature, username, logo, watermark, e621, ambiguous form, anthropomorphic, furry, feral, semi-anthro, mammal，\",\"parameters\":{\"seed\":1078467689395595,\"steps\":10,\"cfg\":6,\"denoise\":1,\"width\":896,\"height\":1152,\"sampler\":\"er_sde\",\"scheduler\":\"simple\",\"sampler_raw\":\"er_sde_simple\"},\"models\":[{\"type\":\"基础模型\",\"name\":\"anima-base-v1.0\",\"hash\":\"bd43b7cffe\"}],\"loras\":{\"text\":\"<lora:tdd-000024:0.8> <lora:fagi-000032:0.5> <lora:ttsby-000030:0.5> <lora:shoa_v1_epoch22:0.3> <lora:shuangbatian v1-000007:0.35> <lora:kanzarin_v1_step1500:0.4> <lora:n1rs:0.35> <lora:xiaohongshu-painterly_LoCon-AnimaBaseV1.0-000030:0.4> <lora:y0gg1_anima1.0_v0.1:0.7>\",\"hashes\":[{\"name\":\"tdd-000024\",\"hash\":\"7a9b8add3f\"},{\"name\":\"fagi-000032\",\"hash\":\"a3e72fd8d5\"},{\"name\":\"ttsby-000030\",\"hash\":\"8a8b4f7723\"},{\"name\":\"shoa_v1_epoch22\",\"hash\":\"4c87a3990d\"},{\"name\":\"shuangbatian v1-000007\",\"hash\":\"c1736d5022\"},{\"name\":\"kanzarin_v1_step1500\",\"hash\":\"6fe984aef0\"},{\"name\":\"n1rs\",\"hash\":\"0a7d296b49\"},{\"name\":\"xiaohongshu-painterly_LoCon-AnimaBaseV1.0-000030\",\"hash\":\"f196f60036\"},{\"name\":\"y0gg1_anima1.0_v0.1\",\"hash\":\"18869258e1\"}]},\"raw_metadata\":{\"loop\":1,\"background\":[255,255,255,255],\"ExifOffset\":26,\"UserComment\":\"@dd, @sby, @takashima_sh0a, @shuangbatian, @k4nz4r1n, n1rs,masterpiece, score_9, year 2025, highre, nsfw, absurdres, very awa, @yoneyama mai, @dino \\\\(dinoartforame\\\\), @akama chlorine, @z3zz, @fymrie, @john kafka, @rella, @void 0, @lemon89h, @anemoneeanemone, @fouriasensei, 1girl, animal ear fluff, animal ears, balloon, blue eyes, blue hair, bow, box, cake, cat ears, cat girl, dress, food, fork, gift, hair ornament, hairband, heart, heterochromia, holding, long hair, phone, plate, solo, stuffed animal, stuffed toy, twintails <lora:tdd-000024:0.8> <lora:fagi-000032:0.5> <lora:ttsby-000030:0.5> <lora:shoa_v1_epoch22:0.3> <lora:shuangbatian v1-000007:0.35> <lora:kanzarin_v1_step1500:0.4> <lora:n1rs:0.35> <lora:xiaohongshu-painterly_LoCon-AnimaBaseV1.0-000030:0.4> <lora:y0gg1_anima1.0_v0.1:0.7>\\nNegative prompt: worst quality, low quality, bad quality, worst detail, bad detail, lowres, old, censored, bad hands, mutated hands, deformed hands, extra fingers, six fingers, signature, username, logo, watermark, e621, ambiguous form, anthropomorphic, furry, feral, semi-anthro, mammal，\\nSteps: 10, Sampler: er_sde_simple, Scheduler: simple, CFG scale: 6, Seed: 1078467689395595, Size: 896x1152, Denoising strength: 1, %Y-%m-%d-%H%M%S, Model hash: bd43b7cffe, Model: anima-base-v1.0, Hashes: {\\\"model\\\":\\\"bd43b7cffe\\\",\\\"LORA:tdd-000024\\\":\\\"7a9b8add3f\\\",\\\"LORA:fagi-000032\\\":\\\"a3e72fd8d5\\\",\\\"LORA:ttsby-000030\\\":\\\"8a8b4f7723\\\",\\\"LORA:shoa_v1_epoch22\\\":\\\"4c87a3990d\\\",\\\"LORA:shuangbatian v1-000007\\\":\\\"c1736d5022\\\",\\\"LORA:kanzarin_v1_step1500\\\":\\\"6fe984aef0\\\",\\\"LORA:n1rs\\\":\\\"0a7d296b49\\\",\\\"LORA:xiaohongshu-painterly_LoCon-AnimaBaseV1.0-000030\\\":\\\"f196f60036\\\",\\\"LORA:y0gg1_anima1.0_v0.1\\\":\\\"18869258e1\\\"}, Version: ComfyUI\\nPM4A prompt: {\\\"source_type\\\":\\\"4a\\\",\\\"source_label\\\":\\\"4A\\\",\\\"tracks\\\":[{\\\"id\\\":\\\"positive\\\",\\\"name\\\":\\\"正面\\\",\\\"text\\\":\\\"@dd, @sby, @takashima_sh0a, @shuangbatian, @k4nz4r1n, n1rs,masterpiece, score_9, year 2025, highre, nsfw, absurdres, very awa, @yoneyama mai, @dino \\\\\\\\(dinoartforame\\\\\\\\), @akama chlorine, @z3zz, @fymrie, @john kafka, @rella, @void 0, @lemon89h, @anemoneeanemone, @fouriasensei, 1girl, animal ear fluff, animal ears, balloon, blue eyes, blue hair, bow, box, cake, cat ears, cat girl, dress, food, fork, gift, hair ornament, hairband, heart, heterochromia, holding, long hair, phone, plate, solo, stuffed animal, stuffed toy, twintails\\\"}],\\\"positive\\\":\\\"@dd, @sby, @takashima_sh0a, @shuangbatian, @k4nz4r1n, n1rs,masterpiece, score_9, year 2025, highre, nsfw, absurdres, very awa, @yoneyama mai, @dino \\\\\\\\(dinoartforame\\\\\\\\), @akama chlorine, @z3zz, @fymrie, @john kafka, @rella, @void 0, @lemon89h, @anemoneeanemone, @fouriasensei, 1girl, animal ear fluff, animal ears, balloon, blue eyes, blue hair, bow, box, cake, cat ears, cat girl, dress, food, fork, gift, hair ornament, hairband, heart, heterochromia, holding, long hair, phone, plate, solo, stuffed animal, stuffed toy, twintails\\\",\\\"negative\\\":\\\"worst quality, low quality, bad quality, worst detail, bad detail, lowres, old, censored, bad hands, mutated hands, deformed hands, extra fingers, six fingers, signature, username, logo, watermark, e621, ambiguous form, anthropomorphic, furry, feral, semi-anthro, mammal，\\\",\\\"parameters\\\":{\\\"seed\\\":1078467689395595,\\\"steps\\\":10,\\\"width\\\":896,\\\"height\\\":1152,\\\"cfg\\\":6.0,\\\"denoise\\\":1.0,\\\"sampler\\\":\\\"er_sde\\\",\\\"scheduler\\\":\\\"simple\\\"},\\\"models\\\":[{\\\"type\\\":\\\"基础模型\\\",\\\"name\\\":\\\"anima-base-v1.0\\\",\\\"hash\\\":\\\"bd43b7cffe\\\"}],\\\"loras\\\":{\\\"text\\\":\\\"<lora:tdd-000024:0.8> <lora:fagi-000032:0.5> <lora:ttsby-000030:0.5> <lora:shoa_v1_epoch22:0.3> <lora:shuangbatian v1-000007:0.35> <lora:kanzarin_v1_step1500:0.4> <lora:n1rs:0.35> <lora:xiaohongshu-painterly_LoCon-AnimaBaseV1.0-000030:0.4> <lora:y0gg1_anima1.0_v0.1:0.7>\\\",\\\"hashes\\\":[{\\\"name\\\":\\\"tdd-000024\\\",\\\"hash\\\":\\\"7a9b8add3f\\\"},{\\\"name\\\":\\\"fagi-000032\\\",\\\"hash\\\":\\\"a3e72fd8d5\\\"},{\\\"name\\\":\\\"ttsby-000030\\\",\\\"hash\\\":\\\"8a8b4f7723\\\"},{\\\"name\\\":\\\"shoa_v1_epoch22\\\",\\\"hash\\\":\\\"4c87a3990d\\\"},{\\\"name\\\":\\\"shuangbatian v1-000007\\\",\\\"hash\\\":\\\"c1736d5022\\\"},{\\\"name\\\":\\\"kanzarin_v1_step1500\\\",\\\"hash\\\":\\\"6fe984aef0\\\"},{\\\"name\\\":\\\"n1rs\\\",\\\"hash\\\":\\\"0a7d296b49\\\"},{\\\"name\\\":\\\"xiaohongshu-painterly_LoCon-AnimaBaseV1.0-000030\\\",\\\"hash\\\":\\\"f196f60036\\\"},{\\\"name\\\":\\\"y0gg1_anima1.0_v0.1\\\",\\\"hash\\\":\\\"18869258e1\\\"}]}}\\nPM4A generation parameters: {\\\"schema\\\":\\\"pm4a_generation_parameters\\\",\\\"parameters\\\":{\\\"seed\\\":1078467689395595,\\\"steps\\\":10,\\\"width\\\":896,\\\"height\\\":1152,\\\"cfg\\\":6.0,\\\"denoise\\\":1.0,\\\"sampler\\\":\\\"er_sde\\\",\\\"scheduler\\\":\\\"simple\\\"},\\\"resources\\\":{\\\"models\\\":[{\\\"name\\\":\\\"anima-base-v1.0\\\",\\\"file_name\\\":\\\"anima-base-v1.0.safetensors\\\",\\\"hash\\\":\\\"bd43b7cffe\\\",\\\"sha256\\\":\\\"bd43b7cffe1ed1153d9c41e7beb2f18cb1273eafbaa3af3edd6a173dc90a006e\\\",\\\"type\\\":\\\"基础模型\\\"}],\\\"loras\\\":[{\\\"name\\\":\\\"tdd-000024\\\",\\\"file_name\\\":\\\"tdd-000024.safetensors\\\",\\\"hash\\\":\\\"7a9b8add3f\\\",\\\"sha256\\\":\\\"7a9b8add3fb921e947fcb1afe8060b7390d6e29ff4ebb160e2190c37d575d451\\\",\\\"weight\\\":0.8},{\\\"name\\\":\\\"fagi-000032\\\",\\\"file_name\\\":\\\"fagi-000032.safetensors\\\",\\\"hash\\\":\\\"a3e72fd8d5\\\",\\\"sha256\\\":\\\"a3e72fd8d53038d4442a05e0dce561e5a48470ec71b3c64623ccf5d9a73b68ee\\\",\\\"weight\\\":0.5},{\\\"name\\\":\\\"ttsby-000030\\\",\\\"file_name\\\":\\\"ttsby-000030.safetensors\\\",\\\"hash\\\":\\\"8a8b4f7723\\\",\\\"sha256\\\":\\\"8a8b4f772308e9cab2022bb165d770b571d831fb48cd2bc2ac513fa9365313e1\\\",\\\"weight\\\":0.5},{\\\"name\\\":\\\"shoa_v1_epoch22\\\",\\\"file_name\\\":\\\"shoa_v1_epoch22.safetensors\\\",\\\"hash\\\":\\\"4c87a3990d\\\",\\\"sha256\\\":\\\"4c87a3990d00da6987abcbc3a00d1371289efe305a0e27ebac2d1f6fc5c9f6e3\\\",\\\"weight\\\":0.3},{\\\"name\\\":\\\"shuangbatian v1-000007\\\",\\\"file_name\\\":\\\"shuangbatian v1-000007.safetensors\\\",\\\"hash\\\":\\\"c1736d5022\\\",\\\"sha256\\\":\\\"c1736d5022bd8994c75ece4a88728f7eb4cefba155a05ebffce050bbfabc653b\\\",\\\"weight\\\":0.35},{\\\"name\\\":\\\"kanzarin_v1_step1500\\\",\\\"file_name\\\":\\\"kanzarin_v1_step1500.safetensors\\\",\\\"hash\\\":\\\"6fe984aef0\\\",\\\"sha256\\\":\\\"6fe984aef04a5006261122be17d12725c4da1130f11796632ad87747a8f98083\\\",\\\"weight\\\":0.4},{\\\"name\\\":\\\"n1rs\\\",\\\"file_name\\\":\\\"n1rs.safetensors\\\",\\\"hash\\\":\\\"0a7d296b49\\\",\\\"sha256\\\":\\\"0a7d296b49d76dabdea0f41bb40288473841331aca2e7e0ebf7dbb18a9db93db\\\",\\\"weight\\\":0.35},{\\\"name\\\":\\\"xiaohongshu-painterly_LoCon-AnimaBaseV1.0-000030\\\",\\\"file_name\\\":\\\"xiaohongshu-painterly_LoCon-AnimaBaseV1.0-000030.safetensors\\\",\\\"hash\\\":\\\"f196f60036\\\",\\\"sha256\\\":\\\"f196f60036ec8aa1d3e01836687ee22912a09ca8bf48aa7acd59f41f34ca9efb\\\",\\\"weight\\\":0.4},{\\\"name\\\":\\\"y0gg1_anima1.0_v0.1\\\",\\\"file_name\\\":\\\"y0gg1_anima1.0_v0.1.safetensors\\\",\\\"hash\\\":\\\"18869258e1\\\",\\\"sha256\\\":\\\"18869258e11d2e163320edf953a91bbdcddbf0100ea45c8b8aa69bc92b206bc3\\\",\\\"weight\\\":0.7}],\\\"embeddings\\\":[]}}\"},\"image_dimensions\":{\"width\":896,\"height\":1152}}",
+        ""
+      ]
+    },
+    {
+      "id": 382,
+      "type": "Image Saver (4A Prompt Manager)",
+      "pos": [
+        576.9290083871751,
+        77.28679606439613
+      ],
+      "size": [
+        269.3140625,
+        714
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 978
+        },
+        {
+          "name": "model_name",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        },
+        {
+          "name": "loaded_loras",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        },
+        {
+          "name": "prompt_json",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        },
+        {
+          "name": "parameters_json",
+          "shape": 7,
+          "type": "STRING",
+          "link": 979
+        },
+        {
+          "name": "positive",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "positive"
+          },
+          "link": 944
+        },
+        {
+          "name": "negative",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "negative"
+          },
+          "link": 946
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hashes",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "a1111_params",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Image Saver (4A Prompt Manager)",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "%time_%seed",
+        "",
+        "png",
+        true,
+        100,
+        false,
+        true,
+        false,
+        "",
+        "",
+        "",
+        0,
+        "%Y-%m-%d-%H%M%S",
+        true
+      ]
+    },
+    {
+      "id": 386,
+      "type": "Double Sample Parameters (4A Prompt Manager)",
+      "pos": [
+        -119.0259701823714,
+        -327.08188389812244
+      ],
+      "size": [
+        210,
+        335.7761402695079
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "seed",
+          "type": "INT",
+          "links": [
+            969
+          ]
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "links": [
+            970
+          ]
+        },
+        {
+          "name": "cfg",
+          "type": "FLOAT",
+          "links": [
+            971
+          ]
+        },
+        {
+          "name": "sampler",
+          "type": "COMBO",
+          "links": [
+            972
+          ]
+        },
+        {
+          "name": "scheduler",
+          "type": "COMBO",
+          "links": [
+            973
+          ]
+        },
+        {
+          "name": "denoise",
+          "type": "FLOAT",
+          "links": [
+            974
+          ]
+        },
+        {
+          "name": "parameters_json",
+          "type": "STRING",
+          "links": [
+            976
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Double Sample Parameters (4A Prompt Manager)",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        151725359034734,
+        "randomize",
+        30,
+        5.5,
+        "euler",
+        "normal",
+        0.8
+      ],
+      "color": "#323",
+      "bgcolor": "#535"
+    }
+  ],
+  "links": [
+    [
+      903,
+      367,
+      6,
+      376,
+      0,
+      "INT"
+    ],
+    [
+      904,
+      367,
+      7,
+      376,
+      1,
+      "INT"
+    ],
+    [
+      915,
+      378,
+      0,
+      379,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      916,
+      377,
+      0,
+      379,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      917,
+      376,
+      0,
+      379,
+      3,
+      "LATENT"
+    ],
+    [
+      918,
+      367,
+      0,
+      379,
+      4,
+      "INT"
+    ],
+    [
+      919,
+      367,
+      1,
+      379,
+      5,
+      "INT"
+    ],
+    [
+      920,
+      367,
+      2,
+      379,
+      6,
+      "FLOAT"
+    ],
+    [
+      921,
+      367,
+      3,
+      379,
+      7,
+      "COMBO"
+    ],
+    [
+      922,
+      367,
+      4,
+      379,
+      8,
+      "COMBO"
+    ],
+    [
+      923,
+      367,
+      5,
+      379,
+      9,
+      "FLOAT"
+    ],
+    [
+      925,
+      379,
+      0,
+      380,
+      0,
+      "LATENT"
+    ],
+    [
+      926,
+      374,
+      0,
+      380,
+      1,
+      "VAE"
+    ],
+    [
+      941,
+      367,
+      0,
+      383,
+      0,
+      "INT"
+    ],
+    [
+      943,
+      383,
+      0,
+      378,
+      1,
+      "STRING"
+    ],
+    [
+      944,
+      383,
+      0,
+      382,
+      5,
+      "STRING"
+    ],
+    [
+      945,
+      383,
+      1,
+      377,
+      1,
+      "STRING"
+    ],
+    [
+      946,
+      383,
+      1,
+      382,
+      6,
+      "STRING"
+    ],
+    [
+      957,
+      385,
+      0,
+      379,
+      0,
+      "MODEL"
+    ],
+    [
+      958,
+      373,
+      0,
+      377,
+      0,
+      "CLIP"
+    ],
+    [
+      959,
+      373,
+      0,
+      378,
+      0,
+      "CLIP"
+    ],
+    [
+      962,
+      390,
+      0,
+      391,
+      0,
+      "LATENT"
+    ],
+    [
+      963,
+      389,
+      0,
+      390,
+      3,
+      "LATENT"
+    ],
+    [
+      964,
+      374,
+      0,
+      391,
+      1,
+      "VAE"
+    ],
+    [
+      965,
+      374,
+      0,
+      389,
+      1,
+      "VAE"
+    ],
+    [
+      966,
+      385,
+      0,
+      390,
+      0,
+      "MODEL"
+    ],
+    [
+      967,
+      378,
+      0,
+      390,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      968,
+      377,
+      0,
+      390,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      969,
+      386,
+      0,
+      390,
+      4,
+      "INT"
+    ],
+    [
+      970,
+      386,
+      1,
+      390,
+      5,
+      "INT"
+    ],
+    [
+      971,
+      386,
+      2,
+      390,
+      6,
+      "FLOAT"
+    ],
+    [
+      972,
+      386,
+      3,
+      390,
+      7,
+      "COMBO"
+    ],
+    [
+      973,
+      386,
+      4,
+      390,
+      8,
+      "COMBO"
+    ],
+    [
+      974,
+      386,
+      5,
+      390,
+      9,
+      "FLOAT"
+    ],
+    [
+      975,
+      367,
+      8,
+      388,
+      0,
+      "STRING"
+    ],
+    [
+      976,
+      386,
+      6,
+      388,
+      1,
+      "STRING"
+    ],
+    [
+      978,
+      391,
+      0,
+      382,
+      0,
+      "IMAGE"
+    ],
+    [
+      979,
+      388,
+      0,
+      382,
+      4,
+      "STRING"
+    ],
+    [
+      980,
+      380,
+      0,
+      389,
+      0,
+      "IMAGE"
+    ],
+    [
+      981,
+      383,
+      2,
+      392,
+      0,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ue_links": [],
+    "links_added_by_ue": [],
+    "ds": {
+      "scale": 0.6942323966530799,
+      "offset": [
+        2331.842787588111,
+        510.9938777028936
+      ]
+    },
+    "frontendVersion": "1.45.21",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

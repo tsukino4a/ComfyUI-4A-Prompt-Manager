@@ -1,0 +1,4 @@
+# Traditional TXT wildcard: one short action option per line
+walking casually
+sitting on a bench
+looking back over the shoulder

@@ -1,0 +1,26 @@
+[project]
+name = "4a-prompt-manager"
+version = "1.0.0"
+description = "Folder-based prompt library and multi-track scheduler for ComfyUI, with wildcard syntax, metadata reuse, and A1111-style image saving."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Tsukino4A" },
+]
+dependencies = [
+    "piexif>=1.1.3",
+]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Repository = "https://github.com/tsukino4a/ComfyUI-4A-Prompt-Manager"
+Documentation = "https://github.com/tsukino4a/ComfyUI-4A-Prompt-Manager#readme"
+"Bug Tracker" = "https://github.com/tsukino4a/ComfyUI-4A-Prompt-Manager/issues"
+
+[tool.comfy]
+PublisherId = "tsukino4a"
+DisplayName = "4A Prompt Manager"

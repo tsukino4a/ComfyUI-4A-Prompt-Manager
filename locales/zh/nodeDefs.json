@@ -1,0 +1,133 @@
+{
+  "Prompt Scheduler (4A Prompt Manager)": {
+    "display_name": "提示词调度器（4A 提示词管理器）",
+    "description": "将文件夹通配符提示词按批次顺序或随机展开，并输出正向、负向和结构化提示词数据。",
+    "inputs": {
+      "config_json": {"name": "调度配置 JSON", "tooltip": "前端提示词列与负向提示词的配置 JSON。"},
+      "execution_index": {"name": "执行索引", "tooltip": "当前批次中的从零开始执行位置。"},
+      "run_id": {"name": "运行 ID", "tooltip": "用于在同一批次中保持文件夹快照一致的运行标识。"},
+      "seed": {"name": "种子", "tooltip": "用于确定性地选择通配符内容的随机种子。"}
+    },
+    "outputs": {
+      "0": {"name": "正向提示词", "tooltip": "已展开并合并的正向提示词。"},
+      "1": {"name": "负向提示词", "tooltip": "已展开并合并的负向提示词。"},
+      "2": {"name": "提示词 JSON", "tooltip": "包含已解析提示词列、正向和负向提示词的 JSON。"}
+    }
+  },
+  "Prompt Display (4A Prompt Manager)": {
+    "display_name": "元数据加载器（4A 提示词管理器）",
+    "description": "从图像加载提示词、推理和 LoRA 元数据，并以可选择的只读文本显示已解析列。",
+    "inputs": {
+      "imported_json": {"name": "导入的 JSON", "tooltip": "从图像或外部来源导入的提示词元数据 JSON。"},
+      "prompt_json": {"name": "提示词 JSON", "tooltip": "连接提示词调度器输出的实时提示词 JSON。"}
+    }
+  },
+  "Meta Apply (4A Prompt Manager)": {
+    "display_name": "元数据一键应用（4A 提示词管理器）",
+    "description": "拖入或选择图片后，自动将识别到的正面/负面、模型、生成参数、二次采样参数与 LoRA 应用到当前工作流。",
+    "inputs": {
+      "image": {"name": "图像", "tooltip": "选择或上传图片；读取后自动应用全部可识别元数据。"}
+    }
+  },
+  "Input Parameters (4A Prompt Manager)": {
+    "display_name": "输入参数（4A 提示词管理器）",
+    "description": "输出采样参数、独立的宽高值与可移植 JSON 元数据；比例预设仅用于前端快速设定尺寸。",
+    "inputs": {
+      "seed": {"name": "种子", "tooltip": "生成使用的随机种子。"},
+      "steps": {"name": "步数", "tooltip": "采样迭代次数。"},
+      "cfg": {"name": "CFG", "tooltip": "提示词引导强度。"},
+      "sampler": {"name": "采样器", "tooltip": "采样算法。"},
+      "scheduler": {"name": "调度器", "tooltip": "采样噪声调度器。"},
+      "denoise": {"name": "去噪强度", "tooltip": "去噪程度。"},
+      "ratio": {
+        "name": "比例预设",
+        "tooltip": "用于前端一次性设置宽度与高度的画面比例预设。",
+        "options": {
+          "1:1 方形": "1:1 方形",
+          "4:3 横图": "4:3 横图",
+          "3:4 竖图": "3:4 竖图",
+          "3:2 横图": "3:2 横图",
+          "2:3 竖图": "2:3 竖图",
+          "16:9 横图": "16:9 横图",
+          "9:16 竖图": "9:16 竖图",
+          "5:4 横图": "5:4 横图",
+          "4:5 竖图": "4:5 竖图",
+          "5:3 横图": "5:3 横图",
+          "3:5 竖图": "3:5 竖图",
+          "7:4 横图": "7:4 横图",
+          "4:7 竖图": "4:7 竖图",
+          "2:1 横图": "2:1 横图",
+          "1:2 竖图": "1:2 竖图",
+          "21:9 超宽": "21:9 超宽",
+          "9:21 超长": "9:21 超长"
+        }
+      },
+      "width": {"name": "宽度", "tooltip": "输出图像宽度，将自动对齐到 8 的倍数。"},
+      "height": {"name": "高度", "tooltip": "输出图像高度，将自动对齐到 8 的倍数。"}
+    },
+    "outputs": {
+      "0": {"name": "种子", "tooltip": "生成使用的随机种子。"},
+      "1": {"name": "步数", "tooltip": "采样迭代次数。"},
+      "2": {"name": "CFG", "tooltip": "提示词引导强度。"},
+      "3": {"name": "采样器", "tooltip": "选择的采样算法。"},
+      "4": {"name": "调度器", "tooltip": "选择的噪声调度器。"},
+      "5": {"name": "去噪强度", "tooltip": "选择的去噪程度。"},
+      "6": {"name": "宽度", "tooltip": "输出图像宽度。"},
+      "7": {"name": "高度", "tooltip": "输出图像高度。"},
+      "8": {"name": "参数 JSON", "tooltip": "包含主采样参数的可移植 JSON 元数据。"}
+    }
+  },
+  "Double Sample Parameters (4A Prompt Manager)": {
+    "display_name": "二次采样参数（4A 提示词管理器）",
+    "description": "输出二次采样参数以及用于连接图像保存器 parameters_json 输入的自描述 JSON。",
+    "inputs": {
+      "seed": {"name": "种子", "tooltip": "二次采样使用的随机种子。"},
+      "steps": {"name": "步数", "tooltip": "二次采样的迭代次数。"},
+      "cfg": {"name": "CFG", "tooltip": "二次采样的提示词引导强度。"},
+      "sampler": {"name": "采样器", "tooltip": "二次采样算法。"},
+      "scheduler": {"name": "调度器", "tooltip": "二次采样噪声调度器。"},
+      "denoise": {"name": "去噪强度", "tooltip": "二次采样的去噪程度。"}
+    },
+    "outputs": {
+      "0": {"name": "种子", "tooltip": "二次采样使用的随机种子。"},
+      "1": {"name": "步数", "tooltip": "二次采样的迭代次数。"},
+      "2": {"name": "CFG", "tooltip": "二次采样的提示词引导强度。"},
+      "3": {"name": "采样器", "tooltip": "选择的二次采样算法。"},
+      "4": {"name": "调度器", "tooltip": "选择的二次采样噪声调度器。"},
+      "5": {"name": "去噪强度", "tooltip": "选择的二次采样去噪程度。"},
+      "6": {"name": "参数 JSON", "tooltip": "包含二次采样参数的可移植 JSON 元数据。"}
+    }
+  },
+  "Image Saver (4A Prompt Manager)": {
+    "display_name": "图像保存器（4A 提示词管理器）",
+    "description": "独立的 Image Saver Simple 风格输出节点，保存精确生成参数并自动记录模型、LoRA 和嵌入哈希。",
+    "inputs": {
+      "images": {"name": "图像", "tooltip": "要保存的一张或多张图像。"},
+      "filename": {"name": "文件名", "tooltip": "使用与 Image Saver Simple 相同的文件名变量。"},
+      "path": {"name": "路径", "tooltip": "ComfyUI 输出目录下的保存路径。"},
+      "extension": {"name": "扩展名", "tooltip": "保存图像使用的文件格式。"},
+      "lossless_webp": {"name": "无损 WebP", "tooltip": "保存 WebP 时使用无损压缩。"},
+      "quality_jpeg_or_webp": {"name": "JPEG/WebP 质量", "tooltip": "JPEG 或 WebP 的图像质量。"},
+      "optimize_png": {"name": "优化 PNG", "tooltip": "保存时优化 PNG 文件。"},
+      "embed_workflow": {"name": "嵌入工作流", "tooltip": "在支持的图像格式中嵌入 ComfyUI 工作流数据。"},
+      "save_workflow_as_json": {"name": "工作流另存为 JSON", "tooltip": "同时将工作流保存为 JSON 旁车文件。"},
+      "model_name": {"name": "模型名称", "tooltip": "检查点或 UNet 文件名；系统会自动解析其 SHA256。"},
+      "loaded_loras": {"name": "已加载 LoRA", "tooltip": "来自 Lora Manager 的 loaded_loras 输出。"},
+      "prompt_json": {"name": "提示词 JSON", "tooltip": "来自提示词调度器的 prompt_json 输出。"},
+      "parameters_json": {"name": "参数 JSON", "tooltip": "连接后的输入参数和二次采样参数 JSON。"},
+      "custom": {"name": "自定义文本", "tooltip": "追加到 A1111 元数据的自定义文本。"},
+      "counter": {"name": "计数器", "tooltip": "可用于文件名变量的递增计数。"},
+      "time_format": {"name": "时间格式", "tooltip": "用于时间文件名变量的 strftime 格式。"},
+      "show_preview": {"name": "显示预览", "tooltip": "保存后在 ComfyUI 中显示图像预览。"}
+    },
+    "outputs": {
+      "0": {"name": "资源哈希", "tooltip": "已解析的模型、LoRA 和嵌入哈希。"},
+      "1": {"name": "A1111 参数", "tooltip": "写入图像的 A1111 兼容参数。"}
+    }
+  },
+  "Prompt Manager Browser (4A Prompt Manager)": {
+    "display_name": "提示词管理器浏览器（4A 提示词管理器）",
+    "description": "在 ComfyUI 画布中显示现有的 4A 提示词管理器界面；此纯界面节点不参与执行。",
+    "inputs": {}
+  }
+}
