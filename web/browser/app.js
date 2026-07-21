@@ -1832,14 +1832,39 @@ function rectsIntersect(a, b) {
 function setupBatchMarqueeSelection() {
   const surface = $("list-scroll");
   if (!surface) return;
+  // List actually scrolls inside the library pane, not #list-scroll.
+  const scroller = $("library-pane") || surface;
 
   let pointerId = null;
-  let startX = 0;
-  let startY = 0;
+  let startClientX = 0;
+  let startClientY = 0;
+  let startContentX = 0;
+  let startContentY = 0;
+  let lastClientX = 0;
+  let lastClientY = 0;
   let active = false;
   let suppressClick = false;
   let baseSelection = null;
   let marquee = null;
+
+  const contentPointFromClient = (clientX, clientY) => {
+    const rect = scroller.getBoundingClientRect();
+    return {
+      x: clientX - rect.left + scroller.scrollLeft,
+      y: clientY - rect.top + scroller.scrollTop,
+    };
+  };
+
+  const rowContentRect = (row) => {
+    const scrollerRect = scroller.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    return {
+      left: rowRect.left - scrollerRect.left + scroller.scrollLeft,
+      top: rowRect.top - scrollerRect.top + scroller.scrollTop,
+      right: rowRect.right - scrollerRect.left + scroller.scrollLeft,
+      bottom: rowRect.bottom - scrollerRect.top + scroller.scrollTop,
+    };
+  };
 
   const ensureMarquee = () => {
     if (marquee) return marquee;
@@ -1882,26 +1907,38 @@ function setupBatchMarqueeSelection() {
   };
 
   const updateFromPointer = (clientX, clientY) => {
-    const left = Math.min(startX, clientX);
-    const top = Math.min(startY, clientY);
-    const width = Math.abs(clientX - startX);
-    const height = Math.abs(clientY - startY);
-    const box = ensureMarquee();
-    box.hidden = false;
-    box.style.left = `${left}px`;
-    box.style.top = `${top}px`;
-    box.style.width = `${width}px`;
-    box.style.height = `${height}px`;
+    lastClientX = clientX;
+    lastClientY = clientY;
+    const current = contentPointFromClient(clientX, clientY);
+    const left = Math.min(startContentX, current.x);
+    const top = Math.min(startContentY, current.y);
+    const right = Math.max(startContentX, current.x);
+    const bottom = Math.max(startContentY, current.y);
+    const selectionRect = { left, top, right, bottom };
 
-    const selectionRect = {
-      left,
-      top,
-      right: left + width,
-      bottom: top + height,
-    };
+    const scrollerRect = scroller.getBoundingClientRect();
+    const viewLeft = left - scroller.scrollLeft + scrollerRect.left;
+    const viewTop = top - scroller.scrollTop + scrollerRect.top;
+    const viewRight = right - scroller.scrollLeft + scrollerRect.left;
+    const viewBottom = bottom - scroller.scrollTop + scrollerRect.top;
+    const clipLeft = Math.max(viewLeft, scrollerRect.left);
+    const clipTop = Math.max(viewTop, scrollerRect.top);
+    const clipRight = Math.min(viewRight, scrollerRect.right);
+    const clipBottom = Math.min(viewBottom, scrollerRect.bottom);
+    const box = ensureMarquee();
+    if (clipRight > clipLeft && clipBottom > clipTop) {
+      box.hidden = false;
+      box.style.left = `${clipLeft}px`;
+      box.style.top = `${clipTop}px`;
+      box.style.width = `${clipRight - clipLeft}px`;
+      box.style.height = `${clipBottom - clipTop}px`;
+    } else {
+      box.hidden = true;
+    }
+
     const next = new Set(baseSelection);
     document.querySelectorAll("#prompt-list .prompt-item").forEach((row) => {
-      if (rectsIntersect(selectionRect, row.getBoundingClientRect())) {
+      if (rectsIntersect(selectionRect, rowContentRect(row))) {
         next.add(row.dataset.key);
       }
     });
@@ -1917,16 +1954,21 @@ function setupBatchMarqueeSelection() {
     if (!state.batchMode || event.button !== 0) return;
     if (event.target.closest("button, a, input, select, textarea, label")) return;
     pointerId = event.pointerId;
-    startX = event.clientX;
-    startY = event.clientY;
+    startClientX = event.clientX;
+    startClientY = event.clientY;
+    lastClientX = event.clientX;
+    lastClientY = event.clientY;
+    const start = contentPointFromClient(event.clientX, event.clientY);
+    startContentX = start.x;
+    startContentY = start.y;
     active = false;
     baseSelection = new Set(state.batchSelection);
   });
 
   surface.addEventListener("pointermove", (event) => {
     if (pointerId === null || event.pointerId !== pointerId || !state.batchMode) return;
-    const dx = event.clientX - startX;
-    const dy = event.clientY - startY;
+    const dx = event.clientX - startClientX;
+    const dy = event.clientY - startClientY;
     if (!active) {
       if (Math.hypot(dx, dy) < BATCH_MARQUEE_THRESHOLD_PX) return;
       active = true;
@@ -1941,6 +1983,16 @@ function setupBatchMarqueeSelection() {
     event.preventDefault();
     updateFromPointer(event.clientX, event.clientY);
   });
+
+  // Wheel/trackpad scroll does not always emit pointermove; re-hit-test in content space.
+  scroller.addEventListener(
+    "scroll",
+    () => {
+      if (!active || pointerId === null || !state.batchMode) return;
+      updateFromPointer(lastClientX, lastClientY);
+    },
+    { passive: true },
+  );
 
   surface.addEventListener("pointerup", finish);
   surface.addEventListener("pointercancel", finish);
