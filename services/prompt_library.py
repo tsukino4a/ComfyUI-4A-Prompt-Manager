@@ -41,6 +41,7 @@ try:
     from .wildcard_expansion import (
         LibraryWildcardResolver,
         _natural_display_key,
+        cleanup_prompt_commas,
         join_positive_parts,
         normalize_key,
     )
@@ -73,6 +74,7 @@ except ImportError:  # standalone preview
     from services.wildcard_expansion import (  # type: ignore
         LibraryWildcardResolver,
         _natural_display_key,
+        cleanup_prompt_commas,
         join_positive_parts,
         normalize_key,
     )

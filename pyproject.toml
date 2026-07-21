@@ -1,6 +1,6 @@
 [project]
 name = "4a-prompt-manager"
-version = "1.0.2"
+version = "1.0.3"
 description = "Folder-based prompt library and multi-track scheduler for ComfyUI, with wildcard syntax, metadata reuse, and A1111-style image saving."
 readme = "README.md"
 license = { file = "LICENSE" }
