@@ -51,9 +51,11 @@ from .routes_library import (
 )
 from .routes_tools import (
     handle_append_slot,
+    handle_lora_resolve,
     handle_model_resolve,
     handle_nai_to_anima,
     handle_scheduler_counts,
+    handle_scheduler_lora_plan,
     handle_scheduler_prepare,
 )
 
@@ -101,8 +103,10 @@ _API_ROUTES = (
     ("POST", "/pm4a/api/convert/nai-to-anima", handle_nai_to_anima),
     ("POST", "/pm4a/api/scheduler/counts", handle_scheduler_counts),
     ("POST", "/pm4a/api/scheduler/prepare", handle_scheduler_prepare),
+    ("POST", "/pm4a/api/scheduler/lora-plan", handle_scheduler_lora_plan),
     ("POST", "/pm4a/api/append-slot", handle_append_slot),
     ("POST", "/pm4a/api/model/resolve", handle_model_resolve),
+    ("POST", "/pm4a/api/lora/resolve", handle_lora_resolve),
     ("GET", "/pm4a/api/generation/config", handle_generation_config),
     ("PUT", "/pm4a/api/generation/config", handle_generation_config_update),
     ("POST", "/pm4a/api/generation/workflow", handle_generation_workflow),

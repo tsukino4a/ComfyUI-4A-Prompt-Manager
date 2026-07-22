@@ -5,6 +5,16 @@ import {
   imageFileFromTransfer,
   looksLikeImageFile,
 } from "/pm4a/static/image_drop.js?v=3";
+import {
+  detectLoraManager,
+  entriesToLoraPayload,
+  formatLoraStrength,
+  parseLoraEntries,
+  pickExactLoraFromManager,
+  pickLoraFromManagerItem,
+  searchLoraManager,
+  withLoraStrength,
+} from "/pm4a/static/lora_library.js?v=2";
 
 export const ADD_PROMPT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
@@ -31,6 +41,37 @@ function injectStyles() {
     .pm4a-library-modal textarea { min-height:150px; max-height:42vh; padding:7px 9px; resize:vertical; line-height:1.45; }
     .pm4a-library-modal-secondary { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
     .pm4a-library-modal-secondary textarea { min-height:82px; max-height:24vh; }
+    .pm4a-library-modal-lora-head { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#aeb5bc; }
+    .pm4a-library-modal-lora-list { display:flex; flex-direction:column; gap:5px; min-height:24px; }
+    .pm4a-library-modal-lora-list:empty::before { content:attr(data-empty-text); color:#6d757e; font-style:italic; }
+    .pm4a-library-modal-lora-item { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; align-items:center; padding:7px 8px; border:1px solid #4b5158; border-radius:5px; background:#17191c; }
+    .pm4a-library-modal-lora-tag { min-width:0; color:#e7e9eb; font-family:ui-monospace,Consolas,monospace; overflow-wrap:anywhere; }
+    .pm4a-library-modal-lora-meta { grid-column:1; color:#8a929a; font-size:10px; overflow-wrap:anywhere; word-break:break-all; }
+    .pm4a-library-modal-lora-item button { grid-column:2; grid-row:1 / span 2; width:26px; height:26px; padding:0; display:grid; place-items:center; border:0; background:transparent; color:#b7bec5; }
+    .pm4a-library-modal-lora-item button svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
+    .pm4a-library-modal button.pm4a-library-modal-lora-add { width:23px; height:23px; padding:0 !important; display:inline-grid; place-items:center; border:0 !important; border-radius:4px; color:#aeb5bc; background:transparent !important; }
+    .pm4a-library-modal button.pm4a-library-modal-lora-add:hover { color:#b8ddff; background:rgba(47,156,255,.12) !important; filter:none; }
+    .pm4a-library-modal-lora-add svg { width:13px; height:13px; fill:currentColor; }
+    .pm4a-library-modal-lora-picker { display:flex; flex-direction:column; gap:6px; padding:8px; border:1px solid #4b5158; border-radius:5px; background:#1b1e22; }
+    .pm4a-library-modal-lora-picker[hidden] { display:none !important; }
+    .pm4a-library-modal-lora-results { max-height:180px; overflow:auto; display:flex; flex-direction:column; gap:4px; }
+    .pm4a-library-modal button.pm4a-library-modal-lora-result { width:100%; height:auto !important; min-height:44px; flex:0 0 auto; padding:7px 9px !important; display:flex; flex-direction:column; align-items:stretch; justify-content:center; gap:3px; text-align:left; line-height:1.35; white-space:normal; background:#23272b !important; }
+    .pm4a-library-modal button.pm4a-library-modal-lora-result.active { background:#2c3946 !important; }
+    .pm4a-library-modal-lora-result span { display:block; min-width:0; }
+    .pm4a-library-modal-lora-result span:first-child { color:#e7e9eb; font-weight:650; overflow-wrap:anywhere; word-break:break-word; }
+    .pm4a-library-modal-lora-result span:last-child { color:#8a929a; font-size:10px; overflow-wrap:anywhere; word-break:break-all; }
+    /* Only left inset to match list text; vertical spacing comes from picker padding:8px (avoid double). */
+    .pm4a-library-modal-lora-confirm { display:flex; align-items:center; gap:8px; box-sizing:border-box; min-height:30px; padding:0 0 0 9px; }
+    .pm4a-library-modal-lora-confirm[hidden] { display:none !important; }
+    .pm4a-library-modal-lora-confirm-name { flex:1; min-width:0; color:#e7e9eb; font-size:13px; font-weight:650; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pm4a-library-modal-lora-confirm label { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; margin:0; color:#aeb5bc; white-space:nowrap; }
+    .pm4a-library-modal-lora-confirm label span { font-size:11px; }
+    .pm4a-library-modal-lora-confirm label input { width:56px; height:30px !important; padding:2px 6px !important; font-family:ui-monospace,Consolas,monospace; }
+    .pm4a-library-modal-lora-confirm button { flex:0 0 auto; height:30px; padding:4px 11px; }
+    .pm4a-library-modal-lora-paste { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 8px; align-items:end; }
+    .pm4a-library-modal-lora-paste > span { grid-column:1 / -1; color:#aeb5bc; }
+    .pm4a-library-modal-lora-paste textarea { grid-column:1; min-height:48px; max-height:88px; resize:vertical; font-family:ui-monospace,Consolas,monospace; font-size:12px; line-height:1.35; }
+    .pm4a-library-modal-lora-paste button { grid-column:2; align-self:end; }
     .pm4a-library-modal input:focus, .pm4a-library-modal select:focus, .pm4a-library-modal textarea:focus { border-color:#268bd2; box-shadow:0 0 0 1px rgba(38,139,210,.25); }
     .pm4a-library-modal-preview { min-height:58px; padding:6px; display:flex; align-items:center; gap:9px; border:1px dashed #59616a; border-radius:5px; background:#202327; cursor:pointer; }
     .pm4a-library-modal-preview:focus { outline:0; border-color:#268bd2; box-shadow:0 0 0 1px rgba(38,139,210,.25); }
@@ -179,6 +220,274 @@ export function openPromptLibraryModal({
       makeField(t("备注"), noteInput),
     );
 
+    let loraEntries = [];
+    let loraManagerAvailable = false;
+    let loraSearchTimer = 0;
+    let loraSearchRequestId = 0;
+    let loraPending = null;
+    const loraSection = document.createElement("div");
+    loraSection.className = "pm4a-library-modal-field";
+    const loraHead = document.createElement("div");
+    loraHead.className = "pm4a-library-modal-lora-head";
+    const loraLabel = document.createElement("span");
+    loraLabel.textContent = t("Lora");
+    const loraAddButton = document.createElement("button");
+    loraAddButton.type = "button";
+    loraAddButton.className = "pm4a-library-modal-lora-add";
+    loraAddButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>';
+    loraAddButton.title = t("添加 LoRA");
+    loraAddButton.setAttribute("aria-label", t("添加 LoRA"));
+    loraHead.append(loraLabel, loraAddButton);
+    const loraList = document.createElement("div");
+    loraList.className = "pm4a-library-modal-lora-list";
+    loraList.dataset.emptyText = t("暂无 LoRA");
+    const loraPicker = document.createElement("div");
+    loraPicker.className = "pm4a-library-modal-lora-picker";
+    loraPicker.hidden = true;
+    const loraSearch = document.createElement("input");
+    loraSearch.type = "search";
+    loraSearch.autocomplete = "off";
+    loraSearch.spellcheck = false;
+    loraSearch.placeholder = t("输入 LoRA 名称");
+    const loraResults = document.createElement("div");
+    loraResults.className = "pm4a-library-modal-lora-results";
+    const loraConfirm = document.createElement("div");
+    loraConfirm.className = "pm4a-library-modal-lora-confirm";
+    loraConfirm.hidden = true;
+    const loraConfirmName = document.createElement("div");
+    loraConfirmName.className = "pm4a-library-modal-lora-confirm-name";
+    const loraStrengthLabel = document.createElement("label");
+    const loraStrengthCaption = document.createElement("span");
+    loraStrengthCaption.textContent = t("强度");
+    const loraStrengthInput = document.createElement("input");
+    loraStrengthInput.type = "number";
+    loraStrengthInput.min = "-2";
+    loraStrengthInput.max = "2";
+    loraStrengthInput.step = "0.05";
+    loraStrengthInput.value = "1";
+    loraStrengthLabel.append(loraStrengthCaption, loraStrengthInput);
+    const loraConfirmAdd = document.createElement("button");
+    loraConfirmAdd.type = "button";
+    loraConfirmAdd.textContent = t("添加");
+    loraConfirm.append(loraConfirmName, loraStrengthLabel, loraConfirmAdd);
+    const loraPaste = document.createElement("div");
+    loraPaste.className = "pm4a-library-modal-lora-paste";
+    const loraPasteLabel = document.createElement("span");
+    loraPasteLabel.textContent = t("粘贴 LoRA 串");
+    const loraPasteInput = document.createElement("textarea");
+    loraPasteInput.rows = 2;
+    loraPasteInput.spellcheck = false;
+    loraPasteInput.placeholder = t("<lora:名称:强度> …");
+    const loraPasteButton = document.createElement("button");
+    loraPasteButton.type = "button";
+    loraPasteButton.textContent = t("解析添加");
+    loraPaste.append(loraPasteLabel, loraPasteInput, loraPasteButton);
+    const loraPickerStatus = document.createElement("div");
+    loraPickerStatus.className = "pm4a-library-modal-status";
+    loraPicker.append(loraSearch, loraResults, loraConfirm, loraPaste, loraPickerStatus);
+    loraSection.append(loraHead, loraList, loraPicker);
+
+    const clearLoraPending = () => {
+      loraPending = null;
+      loraConfirm.hidden = true;
+      loraConfirmName.textContent = "";
+      loraStrengthInput.value = "1";
+      loraResults.querySelectorAll(".pm4a-library-modal-lora-result.active")
+        .forEach((node) => node.classList.remove("active"));
+    };
+
+    const renderLoraList = () => {
+      loraList.replaceChildren();
+      for (const [index, entry] of loraEntries.entries()) {
+        const resolved = withLoraStrength(entry, entry.strength);
+        loraEntries[index] = resolved;
+        const row = document.createElement("div");
+        row.className = "pm4a-library-modal-lora-item";
+        const tag = document.createElement("div");
+        tag.className = "pm4a-library-modal-lora-tag";
+        tag.textContent = resolved.tag;
+        const meta = document.createElement("div");
+        meta.className = "pm4a-library-modal-lora-meta";
+        meta.textContent = [resolved.hashName || resolved.name, resolved.hash].filter(Boolean).join(" · ");
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.title = t("删除 LoRA");
+        remove.setAttribute("aria-label", t("删除 LoRA"));
+        remove.innerHTML = CLOSE_ICON;
+        remove.onclick = () => {
+          loraEntries = loraEntries.filter((_, i) => i !== index);
+          renderLoraList();
+        };
+        row.append(tag, meta, remove);
+        loraList.appendChild(row);
+      }
+    };
+
+    const selectLoraPending = async (item, button) => {
+      if (loraEntries.some((candidate) => candidate.name.toLowerCase() === item.name.toLowerCase())) {
+        loraPickerStatus.textContent = t("已添加过同名 LoRA");
+        return;
+      }
+      loraResults.querySelectorAll(".pm4a-library-modal-lora-result.active")
+        .forEach((node) => node.classList.remove("active"));
+      button.classList.add("active");
+      loraPickerStatus.textContent = t("正在读取默认强度…");
+      try {
+        const preview = await pickLoraFromManagerItem(item);
+        loraPending = item;
+        loraConfirmName.textContent = item.name;
+        loraStrengthInput.value = formatLoraStrength(preview.defaultStrength || preview.strength);
+        loraConfirm.hidden = false;
+        loraPickerStatus.textContent = "";
+        loraStrengthInput.focus();
+        loraStrengthInput.select();
+      } catch (error) {
+        clearLoraPending();
+        loraPickerStatus.textContent = t("读取强度失败：{error}", { error: error.message || error });
+      }
+    };
+
+    const confirmLoraPending = async () => {
+      if (!loraPending) return;
+      try {
+        const entry = await pickLoraFromManagerItem(loraPending, loraStrengthInput.value);
+        if (loraEntries.some((candidate) => candidate.name.toLowerCase() === entry.name.toLowerCase())) {
+          loraPickerStatus.textContent = t("已添加过同名 LoRA");
+          return;
+        }
+        loraEntries = [...loraEntries, entry];
+        renderLoraList();
+        loraPicker.hidden = true;
+        loraSearch.value = "";
+        loraPasteInput.value = "";
+        loraResults.replaceChildren();
+        clearLoraPending();
+        loraPickerStatus.textContent = "";
+      } catch (error) {
+        loraPickerStatus.textContent = String(error.message || error);
+      }
+    };
+
+    const addLorasFromPasteText = async () => {
+      const tags = parseLoraEntries({ text: loraPasteInput.value });
+      if (!tags.length) {
+        loraPickerStatus.textContent = t("没有可解析的 LoRA 标签");
+        return;
+      }
+      loraPasteButton.disabled = true;
+      loraPickerStatus.textContent = t("正在解析添加…");
+      let added = 0;
+      let skipped = 0;
+      const missing = [];
+      try {
+        for (const tag of tags) {
+          if (loraEntries.some((candidate) => candidate.name.toLowerCase() === tag.name.toLowerCase())) {
+            skipped += 1;
+            continue;
+          }
+          try {
+            const entry = await pickExactLoraFromManager(tag.name, tag.strength);
+            if (!entry) {
+              missing.push(tag.name);
+              continue;
+            }
+            loraEntries = [...loraEntries, entry];
+            added += 1;
+          } catch (_) {
+            missing.push(tag.name);
+          }
+        }
+        if (added) renderLoraList();
+        const missingText = missing.join(", ");
+        let message = "";
+        if (added && (skipped || missing.length)) {
+          message = t("已解析添加 {added} 个；跳过已有 {skipped} 个；未匹配：{missing}", {
+            added,
+            skipped,
+            missing: missingText || "-",
+          });
+        } else if (added) {
+          message = t("已解析添加 {added} 个 LoRA", { added });
+        } else if (missing.length) {
+          message = t("未匹配任何 LoRA：{missing}", { missing: missingText });
+        } else {
+          message = t("已添加过同名 LoRA");
+        }
+        if (added) {
+          loraPasteInput.value = "";
+          loraPicker.hidden = true;
+          loraSearch.value = "";
+          loraResults.replaceChildren();
+          clearLoraPending();
+          loraPickerStatus.textContent = "";
+          showToast(message, Boolean(missing.length));
+        } else {
+          loraPickerStatus.textContent = message;
+        }
+      } finally {
+        loraPasteButton.disabled = false;
+      }
+    };
+
+    const renderLoraSearch = async (query) => {
+      const requestId = ++loraSearchRequestId;
+      loraPickerStatus.textContent = t("正在搜索…");
+      loraResults.replaceChildren();
+      clearLoraPending();
+      try {
+        const items = await searchLoraManager(query);
+        if (requestId !== loraSearchRequestId) return;
+        if (!items.length) {
+          loraPickerStatus.textContent = t("没有匹配的 LoRA");
+          return;
+        }
+        loraPickerStatus.textContent = "";
+        for (const item of items) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "pm4a-library-modal-lora-result";
+          const name = document.createElement("span");
+          name.textContent = item.name;
+          const meta = document.createElement("span");
+          meta.textContent = [item.fileName, item.hash].filter(Boolean).join(" · ");
+          button.append(name, meta);
+          button.onclick = () => {
+            void selectLoraPending(item, button);
+          };
+          loraResults.appendChild(button);
+        }
+      } catch (error) {
+        if (requestId !== loraSearchRequestId) return;
+        loraPickerStatus.textContent = t("搜索失败：{error}", { error: error.message || error });
+      }
+    };
+
+    loraConfirmAdd.onclick = () => {
+      void confirmLoraPending();
+    };
+    loraStrengthInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void confirmLoraPending();
+      }
+    });
+    loraPasteButton.onclick = () => {
+      void addLorasFromPasteText();
+    };
+    loraPasteInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        void addLorasFromPasteText();
+      }
+    });
+    loraSearch.addEventListener("input", () => {
+      clearTimeout(loraSearchTimer);
+      loraSearchTimer = setTimeout(() => {
+        void renderLoraSearch(loraSearch.value);
+      }, 200);
+    });
+    renderLoraList();
+
     let selectedPreviewFile = previewFile instanceof Blob ? previewFile : null;
     let previewUrl = "";
     let imageRequestId = 0;
@@ -247,10 +556,31 @@ export function openPromptLibraryModal({
     saveButton.textContent = t("添加提示词");
     saveButton.disabled = true;
     footer.append(status, cancelButton, saveButton);
-    form.append(top, contentField, secondary, fileInput, preview, footer);
+    form.append(top, contentField, secondary, loraSection, fileInput, preview, footer);
     dialog.append(header, form);
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
+
+    loraAddButton.onclick = async () => {
+      if (!loraManagerAvailable) {
+        status.textContent = t("需要安装 LoraManager 才能添加");
+        status.classList.add("error");
+        return;
+      }
+      loraPicker.hidden = !loraPicker.hidden;
+      if (!loraPicker.hidden) {
+        loraSearch.focus();
+        await renderLoraSearch(loraSearch.value);
+      }
+    };
+    void detectLoraManager({ force: true }).then((available) => {
+      loraManagerAvailable = available;
+      loraAddButton.disabled = !available;
+      loraAddButton.title = available
+        ? t("添加 LoRA")
+        : t("需要安装 LoraManager 才能添加");
+      loraAddButton.setAttribute("aria-label", loraAddButton.title);
+    });
 
     let saving = false;
     let settled = false;
@@ -391,6 +721,7 @@ export function openPromptLibraryModal({
             content: prompt,
             negative: negativeInput.value,
             note: noteInput.value,
+            lora: entriesToLoraPayload(loraEntries),
           }),
         });
         let entry = created.entry;

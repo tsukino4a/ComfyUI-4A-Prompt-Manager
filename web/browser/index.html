@@ -285,6 +285,17 @@
               </div>
             </div>
           </section>
+          <section id="detail-lora-panel" class="detail-content-panel detail-optional-panel">
+            <div class="detail-section-heading">
+              <div class="detail-section-label-group">
+                <div class="section-label" data-i18n="Lora">Lora</div>
+              </div>
+              <button type="button" id="detail-add-lora" class="detail-edit-button" title="添加 LoRA" aria-label="添加 LoRA" data-i18n-title="添加 LoRA" data-i18n-aria-label="添加 LoRA">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" /></svg>
+              </button>
+            </div>
+            <div id="detail-lora-list" class="detail-lora-list" data-empty-text="暂无 LoRA" data-i18n-empty-text="暂无 LoRA"></div>
+          </section>
           <section id="detail-note-panel" class="detail-content-panel detail-optional-panel">
             <div class="detail-section-heading">
               <div class="detail-section-label-group">
@@ -628,6 +639,44 @@
     </section>
   </div>
 
+  <div id="lora-picker-modal" class="modal-backdrop compact-modal-backdrop" hidden>
+    <section class="folder-create-dialog operation-dialog" role="dialog" aria-modal="true" aria-labelledby="lora-picker-title">
+      <header class="modal-header compact-modal-header">
+        <div>
+          <h2 id="lora-picker-title" data-i18n="添加 LoRA">添加 LoRA</h2>
+          <p data-i18n="从 LoraManager 搜索并选择，不能手写名称">从 LoraManager 搜索并选择，不能手写名称</p>
+        </div>
+        <button type="button" id="lora-picker-close" class="modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="关闭" data-i18n-aria-label="关闭">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+        </button>
+      </header>
+      <div class="folder-create-form">
+        <label class="create-field">
+          <span data-i18n="搜索">搜索</span>
+          <input id="lora-picker-search" type="search" autocomplete="off" spellcheck="false" placeholder="输入 LoRA 名称" data-i18n-placeholder="输入 LoRA 名称" />
+        </label>
+        <div id="lora-picker-results" class="lora-picker-results" role="listbox" aria-label="LoRA 搜索结果" data-i18n-aria-label="LoRA 搜索结果"></div>
+        <div id="lora-picker-confirm" class="lora-picker-confirm" hidden>
+          <div class="lora-picker-confirm-name" id="lora-picker-selected-name"></div>
+          <label class="lora-picker-strength-field">
+            <span data-i18n="强度">强度</span>
+            <input id="lora-picker-strength" type="number" min="-2" max="2" step="0.05" value="1" />
+          </label>
+          <button type="button" id="lora-picker-add" class="modal-secondary-button" data-i18n="添加">添加</button>
+        </div>
+        <label class="create-field lora-picker-paste-field">
+          <span data-i18n="粘贴 LoRA 串">粘贴 LoRA 串</span>
+          <textarea id="lora-picker-paste" rows="2" spellcheck="false" placeholder="<lora:名称:强度> …" data-i18n-placeholder="<lora:名称:强度> …"></textarea>
+          <button type="button" id="lora-picker-parse" class="modal-secondary-button" data-i18n="解析添加">解析添加</button>
+        </label>
+        <p id="lora-picker-status" class="modal-status" aria-live="polite"></p>
+        <div class="modal-actions">
+          <button type="button" id="lora-picker-cancel" class="modal-secondary-button" data-i18n="取消">取消</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <div id="confirm-modal" class="modal-backdrop compact-modal-backdrop" hidden>
     <section class="folder-create-dialog operation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <header class="modal-header compact-modal-header">
@@ -687,6 +736,10 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" /><circle cx="12" cy="12" r="3" /></svg>
       <span data-i18n="批量生成示例图">批量生成示例图</span>
     </button>
+    <button type="button" data-context-action="prompt-wildcard" data-context-prompt role="menuitem">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v10A1.5 1.5 0 0 0 5.5 17H8" /></svg>
+      <span data-i18n="复制为 Wildcard">复制为 Wildcard</span>
+    </button>
     <div class="context-menu-separator" data-context-operation aria-hidden="true"></div>
     <button type="button" data-context-action="operation-copy" data-context-operation role="menuitem">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v10A1.5 1.5 0 0 0 5.5 17H8" /></svg>
@@ -704,6 +757,6 @@
 
   <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
 
-  <script type="module" src="/pm4a/static/app.js?v=69"></script>
+  <script type="module" src="/pm4a/static/app.js?v=70"></script>
 </body>
 </html>

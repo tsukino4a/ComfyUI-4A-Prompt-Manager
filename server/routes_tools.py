@@ -9,7 +9,7 @@ from aiohttp import web
 
 try:
     from ..domain.nai_to_anima import PromptSyntaxError, convert_prompt_tolerant
-    from ..integrations.comfyui.model_resolver import resolve_model
+    from ..integrations.comfyui.model_resolver import resolve_lora, resolve_model
     from ..services import prompt_library as wc
     from ..services import scheduler
     from ..support.i18n import tr
@@ -18,7 +18,10 @@ except ImportError:  # standalone preview
         PromptSyntaxError,
         convert_prompt_tolerant,
     )
-    from integrations.comfyui.model_resolver import resolve_model  # type: ignore
+    from integrations.comfyui.model_resolver import (  # type: ignore
+        resolve_lora,
+        resolve_model,
+    )
     from services import prompt_library as wc  # type: ignore
     from services import scheduler  # type: ignore
     from support.i18n import tr  # type: ignore
@@ -104,13 +107,39 @@ async def handle_scheduler_prepare(request: web.Request) -> web.Response:
     except Exception:
         return _json_error("invalid json")
     try:
-        prepared = scheduler.prepare_run(data.get("config", {}), data.get("task_count", 1))
+        prepared = scheduler.prepare_run(
+            data.get("config", {}),
+            data.get("task_count", 1),
+            seed=data.get("seed", 0),
+        )
         return web.json_response({"success": True, **prepared})
     except (ValueError, FileNotFoundError) as exc:
         return _json_error(str(exc))
     except Exception as exc:
         logger.exception("scheduler prepare failed")
         return _json_error(tr("准备批量运行失败：{error}", error=exc), 500)
+
+
+async def handle_scheduler_lora_plan(request: web.Request) -> web.Response:
+    """Preview LoRA append text for one or more execution indexes."""
+    try:
+        data = await request.json()
+    except Exception:
+        return _json_error("invalid json")
+    try:
+        config = data.get("config", {})
+        plans = scheduler.plan_lora_appends(
+            config,
+            seed=data.get("seed", 0),
+            start_index=data.get("execution_index", data.get("start_index", 0)),
+            task_count=data.get("task_count", 1),
+        )
+        return web.json_response({"success": True, "lora_plans": plans})
+    except (ValueError, FileNotFoundError) as exc:
+        return _json_error(str(exc))
+    except Exception as exc:
+        logger.exception("scheduler lora plan failed")
+        return _json_error(tr("预览 LoRA 计划失败：{error}", error=exc), 500)
 
 
 async def handle_append_slot(request: web.Request) -> web.Response:
@@ -200,4 +229,25 @@ async def handle_model_resolve(request: web.Request) -> web.Response:
     except Exception as exc:
         logger.exception("model resolve failed")
         return _json_error(tr("模型匹配失败：{error}", error=exc), 500)
+    return web.json_response({"success": True, **result})
+
+
+async def handle_lora_resolve(request: web.Request) -> web.Response:
+    """Resolve LoRA identity to a local file (name first, then hash)."""
+    try:
+        data = await request.json()
+    except Exception:
+        return _json_error("invalid json")
+
+    name = data.get("name", "")
+    hash_value = data.get("hash", "")
+    if not isinstance(name, str) or not isinstance(hash_value, str):
+        return _json_error("name and hash must be strings")
+    try:
+        result = resolve_lora(name=name, hash_value=hash_value)
+    except LookupError as exc:
+        return _json_error(str(exc), 404)
+    except Exception as exc:
+        logger.exception("lora resolve failed")
+        return _json_error(tr("LoRA 匹配失败：{error}", error=exc), 500)
     return web.json_response({"success": True, **result})

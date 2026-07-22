@@ -16,6 +16,13 @@
 
 ![Browser](docs/images/browser.png)
 
+### JSON 卡片 LoRA + Wildcard 自动嵌入 LoRA
+
+JSON 卡片可绑定 LoRA（经 [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager) 搜索选择，支持粘贴 `<lora:名称:强度>` 批量解析添加）。当 Scheduler 栏目用 Wildcard 语法（如 `__路径__`）引用带 LoRA 的卡片时，可开启「自动嵌入 Wildcard LoRA」：入队前把对应 LoRA 自动追加到 Lora Loader（已有同名跳过）。仅 Wildcard 解析到的卡片会触发，手写固定文本不会。
+
+<!-- TODO: 替换为正式截图 -->
+![JSON 卡片 LoRA / Wildcard 自动嵌入 LoRA](docs/images/json_card_lora.png)
+
 ### 多层 Prompt Scheduler
 
 多轨正面拼装，支持随机 / 顺序 / 洗牌；兼容 Impact 风格 Wildcard 解析（`__key__`、`{a|b}`、权重、多选、文件夹与全局文件名引用）；每个栏位还可从外部连入 STRING。

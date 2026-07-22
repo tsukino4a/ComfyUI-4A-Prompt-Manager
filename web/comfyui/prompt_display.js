@@ -36,9 +36,6 @@ import {
   displayModelType,
   displayTrackName,
   doubleSampleParameterNodes,
-  findDoubleSampleParametersTarget,
-  findInputParametersTarget,
-  findLoraLoaderTarget,
   findSourceScheduler,
   graphNodeById,
   inputParameterNodes,
@@ -49,13 +46,10 @@ import {
   modelTargetNodes,
   modelTargetSpec,
   readImagePromptSnapshot,
-  replaceLoraLoaderText,
-  replaceModelWidget,
-  resolveLocalModel,
   schedulerNodes,
   setWidgetValue,
   withGraphChangeTransaction,
-} from "./meta_apply_core.js?v=1";
+} from "./meta_apply_core.js?v=4";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const DISPLAY_NODE_CLASS = "Prompt Display (4A Prompt Manager)";
@@ -804,17 +798,19 @@ function setupDisplayNode(node) {
           if (!targets.length) {
             throw new Error(t("工作流中没有兼容的 Checkpoint / UNet Loader"));
           }
-          const target = targetMap.get(targetSelect.value);
-          if (!target) {
+          if (!targetMap.get(targetSelect.value)) {
             throw new Error(t("请先选择模型 Loader"));
           }
           node.properties = node.properties || {};
           node.properties[propertyKey] = targetSelect.value;
-          const result = await resolveLocalModel(entry, target.widgetName);
-          if (!replaceModelWidget(target, result.value)) {
-            throw new Error(t("模型 Loader 尚未准备好"));
+          const { applied, errors } = await applyModelsFromPayload(node, { models: [entry] });
+          if (errors.length) {
+            const raw = String(errors[0] || "");
+            const trimmed = raw.replace(/^[^：:]+[：:]\s*/, "");
+            throw new Error(trimmed || raw);
           }
-          return result;
+          if (!applied[0]) throw new Error(t("模型 Loader 尚未准备好"));
+          return applied[0];
         };
         applyModelActions.push({ entry, apply: applyModel });
         send.onclick = async () => {
@@ -944,22 +940,9 @@ function setupDisplayNode(node) {
         node.properties = node.properties || {};
         node.properties[TARGET_PARAMETERS_PROPERTY] = parameterTarget.value;
       }
-      const target = findInputParametersTarget(node);
-      if (!target) {
-        throw new Error(inputParameterNodes(node.graph || app.graph).length
-          ? t("请先选择参数节点")
-          : t("工作流中没有 4A 参数节点"));
-      }
-      const result = target.__pm4aInputParametersReceive?.(parameters);
-      if (!result) {
-        throw new Error(t("参数节点尚未准备好，请刷新页面"));
-      }
-      const skipped = result.skipped || [];
-      const suffix = skipped.length ? t("；未匹配 {names}", { names: localeJoin(skipped, { zh: "、", en: ", " }) }) : "";
-      return {
-        target,
-        message: t("已发送到“{name}”{suffix}", { name: target.title || t("参数节点 #{id}", { id: target.id }), suffix }),
-      };
+      const message = applyInputParametersFromPayload(node, { parameters });
+      if (!message) throw new Error(t("没有可发送的生成参数"));
+      return { message };
     };
     sendButton.onclick = () => {
       try {
@@ -1063,22 +1046,9 @@ function setupDisplayNode(node) {
         node.properties = node.properties || {};
         node.properties[TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY] = parameterTarget.value;
       }
-      const target = findDoubleSampleParametersTarget(node);
-      if (!target) {
-        throw new Error(doubleSampleParameterNodes(node.graph || app.graph).length
-          ? t("请先选择双采样参数节点")
-          : t("工作流中没有 4A 双采样参数节点"));
-      }
-      const result = target.__pm4aDoubleSampleParametersReceive?.(parameters);
-      if (!result) {
-        throw new Error(t("双采样参数节点尚未准备好，请刷新页面"));
-      }
-      const skipped = result.skipped || [];
-      const suffix = skipped.length ? t("；未匹配 {names}", { names: localeJoin(skipped, { zh: "、", en: ", " }) }) : "";
-      return {
-        target,
-        message: t("已发送到“{name}”{suffix}", { name: target.title || t("双采样参数节点 #{id}", { id: target.id }), suffix }),
-      };
+      const message = applyDoubleSampleFromPayload(node, { double_sample_parameters: parameters });
+      if (!message) throw new Error(t("没有可发送的双采样参数"));
+      return { message };
     };
     sendButton.onclick = () => {
       try {
@@ -1176,29 +1146,23 @@ function setupDisplayNode(node) {
     sendButton.innerHTML = RETURN_ICON;
     sendButton.title = t("替换 LoraManager 的 LoRA 串");
     sendButton.setAttribute("aria-label", sendButton.title);
-    const applyLora = () => {
+    const applyLora = async () => {
       refreshLoraTargets();
       if (loraTarget.value) {
         node.properties = node.properties || {};
         node.properties[TARGET_LORA_PROPERTY] = loraTarget.value;
       }
-      const target = findLoraLoaderTarget(node);
-      if (!target) {
-        throw new Error(loraLoaderNodes(node.graph || app.graph).length
-          ? t("请先选择 LoRA Loader")
-          : t("工作流中没有 LoraManager LoRA Loader"));
-      }
-      if (!replaceLoraLoaderText(target, textValue)) {
-        throw new Error(t("没有找到 LoRA Loader 的文本框"));
-      }
-      return { target, message: t("已替换“{name}”", { name: target.title || `LoRA Loader #${target.id}` }) };
+      // Display keeps the original (possibly wrong) names; remap happens inside apply.
+      const message = await applyLoraFromPayload(node, { loras });
+      if (!message) throw new Error(t("没有可发送的 LoRA 串"));
+      return { message };
     };
     sendButton.onclick = () => {
-      try {
-        setStatus(applyLora().message);
-      } catch (error) {
-        setStatus(t("LoRA 发送失败：{error}", { error: error.message || error }));
-      }
+      void applyLora()
+        .then((result) => setStatus(result.message))
+        .catch((error) => {
+          setStatus(t("LoRA 发送失败：{error}", { error: error.message || error }));
+        });
     };
     header.append(titleGroup, loraTarget, sendButton);
 
@@ -1452,32 +1416,38 @@ function setupDisplayNode(node) {
         const applied = [];
         const errors = [];
         try {
-          const modelResult = await applyModelsFromPayload(node, payload);
-          const modelCount = modelResult.applied.length;
-          if (modelCount) {
-            applied.push(modelCount === 1
-              ? t("模型 1 个")
-              : t("模型 {count} 个", { count: modelCount }));
+          // Same path as each card's individual send (prompt "全部使用" stays separate: clear-then-fill).
+          if (modelsCard?.__pm4aApplyModels) {
+            const modelResult = await modelsCard.__pm4aApplyModels();
+            const modelCount = modelResult.applied.length;
+            if (modelCount) {
+              applied.push(modelCount === 1
+                ? t("模型 1 个")
+                : t("模型 {count} 个", { count: modelCount }));
+            }
+            errors.push(...modelResult.errors);
           }
-          errors.push(...modelResult.errors);
-          try {
-            if (applyInputParametersFromPayload(node, payload)) applied.push(t("生成参数"));
-          } catch (error) {
-            if (payload.parameters) {
+          if (parametersCard?.__pm4aApplyParameters) {
+            try {
+              await Promise.resolve(parametersCard.__pm4aApplyParameters());
+              applied.push(t("生成参数"));
+            } catch (error) {
               errors.push(t("{key}：{error}", { key: t("生成参数"), error: error.message || error }));
             }
           }
-          try {
-            if (applyDoubleSampleFromPayload(node, payload)) applied.push(t("双采样参数"));
-          } catch (error) {
-            if (payload.double_sample_parameters) {
+          if (doubleSampleParametersCard?.__pm4aApplyDoubleSampleParameters) {
+            try {
+              await Promise.resolve(doubleSampleParametersCard.__pm4aApplyDoubleSampleParameters());
+              applied.push(t("双采样参数"));
+            } catch (error) {
               errors.push(t("{key}：{error}", { key: t("双采样参数"), error: error.message || error }));
             }
           }
-          try {
-            if (applyLoraFromPayload(node, payload)) applied.push("LoRA");
-          } catch (error) {
-            if (typeof payload.loras?.text === "string" && payload.loras.text.trim()) {
+          if (loraCard?.__pm4aApplyLora) {
+            try {
+              await loraCard.__pm4aApplyLora();
+              applied.push("LoRA");
+            } catch (error) {
               errors.push(t("{key}：{error}", { key: "LoRA", error: error.message || error }));
             }
           }

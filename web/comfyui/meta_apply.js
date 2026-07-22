@@ -12,12 +12,30 @@ import { configureComfyI18n, t } from "./i18n.js?v=1";
 import {
   applyAllFromPayload,
   readImagePromptSnapshot,
-} from "./meta_apply_core.js?v=1";
+} from "./meta_apply_core.js?v=3";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const NODE_CLASS = "Meta Apply (4A Prompt Manager)";
 
 const TOP_PAD_PX = 8;
+
+const APPLY_FLAG_WIDGETS = {
+  applyModelLora: ["自动应用模型/LoRA", "apply_model_lora"],
+  applyParameters: ["自动应用推理参数", "apply_parameters"],
+  applyPrompt: ["自动应用提示词", "apply_prompt"],
+};
+
+function readApplyFlags(node) {
+  const valueOf = (names) => {
+    const widget = node.widgets?.find((item) => names.includes(item.name));
+    return widget ? widget.value !== false : true;
+  };
+  return {
+    applyModelLora: valueOf(APPLY_FLAG_WIDGETS.applyModelLora),
+    applyParameters: valueOf(APPLY_FLAG_WIDGETS.applyParameters),
+    applyPrompt: valueOf(APPLY_FLAG_WIDGETS.applyPrompt),
+  };
+}
 
 function ensureMetaApplyStyles() {
   if (document.getElementById("pm4a-meta-apply-styles")) return;
@@ -125,7 +143,6 @@ function setupMetaApplyNode(node) {
   main.append(status);
 
   let busy = false;
-  let lastAppliedKey = "";
   let acceptWidgetChanges = false;
 
   const setStatus = (message) => {
@@ -134,22 +151,19 @@ function setupMetaApplyNode(node) {
     status.title = text;
   };
 
-  const applyImage = async (file, { key = "" } = {}) => {
+  const applyImage = async (file) => {
     if (busy) return;
     if (!looksLikeImageFile(file)) {
       setStatus(t("仅支持常见图片格式（PNG、JPEG、WebP、GIF 等）"));
       return;
     }
-    const applyKey = key || `${file.name}:${file.size}:${file.lastModified || 0}`;
-    if (applyKey && applyKey === lastAppliedKey) return;
     busy = true;
     setStatus(t("正在读取并应用元数据…"));
     try {
       const snapshot = await readImagePromptSnapshot(file);
       const payload = parsePromptDocument(snapshot.promptJson);
       if (!payload) throw new Error(t("图片中没有识别到正面或负面提示词"));
-      const result = await applyAllFromPayload(node, payload);
-      lastAppliedKey = applyKey;
+      const result = await applyAllFromPayload(node, payload, readApplyFlags(node));
       setStatus(result.message);
     } catch (error) {
       setStatus(String(error.message || error));
@@ -161,15 +175,12 @@ function setupMetaApplyNode(node) {
   const applyFromWidgetValue = async (value) => {
     const reference = imageReferenceFromWidgetValue(value);
     if (!reference) {
-      lastAppliedKey = "";
       setStatus(t("等待图片"));
       return;
     }
     const url = buildStoredImageUrl(reference, viewPath());
     const file = await fetchImageFile(url, reference.filename);
-    await applyImage(file, {
-      key: `${reference.type}:${reference.subfolder}:${reference.filename}`,
-    });
+    await applyImage(file);
   };
 
   const widget = imageWidget(node);
@@ -194,8 +205,8 @@ function setupMetaApplyNode(node) {
     getMaxHeight: () => 40,
   }));
   node.resizable = true;
-  if (!Array.isArray(node.size) || node.size[1] < 220) {
-    node.setSize([315, 220]);
+  if (!Array.isArray(node.size) || node.size[1] < 310) {
+    node.setSize([315, 310]);
   }
 
   const api = {

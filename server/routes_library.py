@@ -145,6 +145,7 @@ async def handle_update_entry(request: web.Request) -> web.Response:
     content = data.get("content") if "content" in data else None
     negative = data.get("negative") if "negative" in data else None
     note = data.get("note") if "note" in data else None
+    lora = data.get("lora") if "lora" in data else None
     if name is not None and not isinstance(name, str):
         return _json_error("name must be string")
     if content is not None and not isinstance(content, str):
@@ -153,6 +154,8 @@ async def handle_update_entry(request: web.Request) -> web.Response:
         return _json_error("negative must be string")
     if note is not None and not isinstance(note, str):
         return _json_error("note must be string")
+    if lora is not None and not isinstance(lora, dict):
+        return _json_error("lora must be object")
 
     try:
         entry = wc.update_entry(
@@ -161,6 +164,7 @@ async def handle_update_entry(request: web.Request) -> web.Response:
             content=content,
             negative=negative,
             note=note,
+            lora=lora,
         )
     except FileNotFoundError as exc:
         return _json_error(str(exc), 404)
@@ -188,8 +192,11 @@ async def handle_create_entry(request: web.Request) -> web.Response:
     content = data.get("content")
     negative = data.get("negative", "")
     note = data.get("note", "")
+    lora = data.get("lora", None)
     if not all(isinstance(value, str) for value in (folder, name, content, negative, note)):
         return _json_error("folder, name, content, negative and note must be strings")
+    if lora is not None and not isinstance(lora, dict):
+        return _json_error("lora must be object")
 
     try:
         entry = wc.create_entry(
@@ -198,6 +205,7 @@ async def handle_create_entry(request: web.Request) -> web.Response:
             content,
             negative=negative,
             note=note,
+            lora=lora,
         )
     except FileNotFoundError as exc:
         return _json_error(str(exc), 404)

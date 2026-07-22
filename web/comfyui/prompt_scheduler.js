@@ -1,9 +1,17 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { configureComfyI18n, pm4aFetch, t } from "./i18n.js?v=1";
+import { configureComfyI18n, pm4aFetch, t } from "./i18n.js?v=2";
 import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js";
 import { attachAutocompletePlus } from "./autocomplete_plus_attach.js?v=1";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
+import {
+  TARGET_LORA_PROPERTY,
+  findLoraLoaderTarget,
+  loraLoaderNodes,
+  mergeLoraAppendText,
+  readLoraLoaderText,
+  writeLoraLoaderText,
+} from "./meta_apply_core.js?v=1";
 
 const NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
 const TRACK_INPUT_PREFIX = "pm4a_track_";
@@ -57,6 +65,7 @@ function defaultConfig() {
     task_count: 1,
     negative: "",
     negative_collapsed: false,
+    lora_append: false,
     tracks: [
       defaultTrack("quality", "质量"),
       defaultTrack("character", "角色"),
@@ -104,8 +113,15 @@ function normalizeConfig(value) {
     negative_ui_height: Number.isFinite(Number(raw.negative_ui_height))
       ? Math.max(58, Math.min(1200, Math.round(Number(raw.negative_ui_height))))
       : null,
+    lora_append: Boolean(raw.lora_append),
     tracks: normalizedTracks,
   };
+}
+
+function seedWidgetValue(node) {
+  const widget = node.widgets?.find((candidate) => candidate?.name === "seed");
+  const value = Number(widget?.value);
+  return Number.isFinite(value) ? Math.trunc(value) : 0;
 }
 
 function findSchedulerNodes() {
@@ -151,11 +167,15 @@ function injectStyles() {
     .pm4a-scheduler button { color:#eee; background:#34383d; border:1px solid #555b62; border-radius:4px; padding:5px 8px; cursor:pointer; font:inherit; }
     .pm4a-scheduler button:hover { filter:brightness(1.15); }
     .pm4a-scheduler button:disabled { opacity:.5; cursor:not-allowed; }
-    .pm4a-scheduler-controls { display:grid; grid-template-columns:104px 104px auto auto; gap:8px; align-items:end; justify-content:start; padding-top:4px; }
+    .pm4a-scheduler-controls { display:grid; grid-template-columns:104px 104px auto auto; gap:8px; align-items:end; justify-content:start; }
     .pm4a-scheduler-controls .pm4a-scheduler-field { min-width:0; }
     .pm4a-scheduler-controls input, .pm4a-scheduler-controls button { height:32px; min-height:32px; }
     .pm4a-scheduler-field { display:flex; flex-direction:column; gap:3px; color:#aeb4bb; }
     .pm4a-scheduler-run { background:#285f38 !important; border-color:#4b9a61 !important; font-weight:700 !important; }
+    .pm4a-scheduler-lora-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding-top:2px; }
+    .pm4a-scheduler-lora-toggle { display:inline-flex; align-items:center; gap:6px; color:#aeb4bb; cursor:pointer; user-select:none; }
+    .pm4a-scheduler-lora-toggle input { width:auto; margin:0; }
+    .pm4a-scheduler-lora-target { flex:1; min-width:140px; max-width:260px; height:28px; }
     .pm4a-track-list { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; gap:7px; padding-right:3px; scrollbar-width:thin; }
     .pm4a-track { flex:0 0 auto; border:1px solid #486b48; border-radius:6px; background:#353; overflow:hidden; }
     .pm4a-track-header { display:flex; align-items:center; gap:2px; min-height:28px; padding:2px 4px; background:#232; }
@@ -375,6 +395,54 @@ app.registerExtension({
       runButton.textContent = t("批量运行");
       controls.append(oneRoundButton, runButton);
 
+      const loraRow = document.createElement("div");
+      loraRow.className = "pm4a-scheduler-lora-row";
+      const loraToggle = document.createElement("label");
+      loraToggle.className = "pm4a-scheduler-lora-toggle";
+      const loraCheckbox = document.createElement("input");
+      loraCheckbox.type = "checkbox";
+      loraCheckbox.checked = Boolean(config.lora_append);
+      const loraToggleText = document.createElement("span");
+      loraToggleText.textContent = t("自动嵌入 Wildcard LoRA");
+      loraToggle.title = t("仅当栏目通过 Wildcard 语法（如 __路径__）引用带 LoRA 的词条时，入队前自动追加到 Lora Loader（已有同名跳过）");
+      loraToggle.append(loraCheckbox, loraToggleText);
+      const loraTarget = document.createElement("select");
+      loraTarget.className = "pm4a-scheduler-lora-target";
+      loraTarget.title = t("选择 LoRA Loader");
+      const refreshLoraTargets = () => {
+        const targets = loraLoaderNodes(node.graph || app.graph);
+        const previous = String(node.properties?.[TARGET_LORA_PROPERTY] || "");
+        loraTarget.replaceChildren();
+        if (targets.length > 1) {
+          const placeholder = document.createElement("option");
+          placeholder.value = "";
+          placeholder.textContent = t("选择 LoRA Loader");
+          loraTarget.appendChild(placeholder);
+        }
+        for (const target of targets) {
+          const option = document.createElement("option");
+          option.value = String(target.id);
+          option.textContent = target.title || `LoRA Loader #${target.id}`;
+          loraTarget.appendChild(option);
+        }
+        const remembered = targets.find((target) => String(target.id) === previous);
+        if (remembered) loraTarget.value = previous;
+        else if (targets.length === 1) loraTarget.value = String(targets[0].id);
+        else loraTarget.value = "";
+        loraTarget.hidden = !config.lora_append || targets.length < 2;
+      };
+      loraCheckbox.addEventListener("change", () => {
+        config.lora_append = loraCheckbox.checked;
+        refreshLoraTargets();
+        persist();
+      });
+      loraTarget.addEventListener("change", () => {
+        node.properties = node.properties || {};
+        node.properties[TARGET_LORA_PROPERTY] = loraTarget.value;
+      });
+      refreshLoraTargets();
+      loraRow.append(loraToggle, loraTarget);
+
       const trackList = document.createElement("div");
       trackList.className = "pm4a-track-list";
       const addButton = document.createElement("button");
@@ -390,6 +458,7 @@ app.registerExtension({
       negativeCollapse.type = "button";
       negativeCollapse.className = "pm4a-collapse-button";
       const negativeInput = document.createElement("textarea");
+      negativeInput.spellcheck = false;
       negativeInput.placeholder = t("固定负面提示词");
       negativeInput.value = config.negative;
       negativeInput.addEventListener("input", () => {
@@ -402,7 +471,7 @@ app.registerExtension({
       });
       negativeTitle.append(negativeCollapse, negativeTitleText);
       negative.append(negativeTitle, negativeInput);
-      main.append(controls, trackList, addButton, negative);
+      main.append(loraRow, controls, trackList, addButton, negative);
 
       let disconnectingInternalInputs = false;
       const disconnectInternalInputs = () => {
@@ -582,11 +651,27 @@ app.registerExtension({
         negativeInput.style.height = config.negative_ui_height
           ? `${config.negative_ui_height}px`
           : "";
+        loraCheckbox.checked = Boolean(config.lora_append);
+        refreshLoraTargets();
         if (!restoring) persist();
         renderNegative();
         renderTracks({ removeStaleInputs: !restoring });
         lockInternalInputTypes();
         disconnectInternalInputs();
+      }
+
+      function resolveLoraLoaderForAppend() {
+        if (loraTarget.value) {
+          node.properties = node.properties || {};
+          node.properties[TARGET_LORA_PROPERTY] = loraTarget.value;
+        }
+        return findLoraLoaderTarget(node);
+      }
+
+      function applyLoraAppendText(loader, baseText, appendText) {
+        const next = mergeLoraAppendText(baseText, appendText);
+        if (next === baseText) return false;
+        return writeLoraLoaderText(loader, next);
       }
 
       function renderNegative() {
@@ -777,6 +862,7 @@ app.registerExtension({
             body.className = "pm4a-track-body";
             const prompt = document.createElement("textarea");
             prompt.className = "pm4a-track-prompt";
+            prompt.spellcheck = false;
             prompt.placeholder = t("固定文本，或粘贴 __文件夹路径__");
             prompt.value = track.text;
             prompt.dataset.trackId = track.id;
@@ -922,24 +1008,50 @@ app.registerExtension({
         persist();
         runButton.disabled = true;
         oneRoundButton.disabled = true;
+        let loader = null;
+        let baseLoraText = "";
         try {
           const data = await fetchJson("/pm4a/api/scheduler/prepare", {
             config,
             task_count: config.task_count,
+            seed: seedWidgetValue(node),
           });
+          const loraPlans = Array.isArray(data.lora_plans) ? data.lora_plans : [];
+          if (config.lora_append) {
+            refreshLoraTargets();
+            loader = resolveLoraLoaderForAppend();
+            if (!loader) {
+              console.warn(
+                "[4A Scheduler]",
+                loraLoaderNodes(node.graph || app.graph).length
+                  ? t("请先选择 LoRA Loader")
+                  : t("工作流中没有 LoraManager LoRA Loader"),
+              );
+            } else {
+              baseLoraText = readLoraLoaderText(loader);
+            }
+          }
           batchState = {
             runId: data.run_id,
             currentIndex: config.start_index,
+            skipQueueHook: true,
           };
           for (let index = 0; index < config.task_count; index++) {
             batchState.currentIndex = config.start_index + index;
             indexWidget.value = batchState.currentIndex;
             runWidget.value = batchState.runId;
+            if (loader) {
+              const plan = loraPlans.find(
+                (entry) => Number(entry?.execution_index) === batchState.currentIndex,
+              ) || loraPlans[index];
+              applyLoraAppendText(loader, baseLoraText, plan?.append_text || "");
+            }
             await app.queuePrompt(0);
           }
         } catch (error) {
           console.error("[4A Scheduler] Failed to queue batch", error);
         } finally {
+          if (loader) writeLoraLoaderText(loader, baseLoraText);
           batchState = null;
           indexWidget.value = config.start_index;
           runWidget.value = "";
@@ -947,6 +1059,59 @@ app.registerExtension({
           oneRoundButton.disabled = false;
         }
       };
+
+      if (!app.__pm4aSchedulerLoraQueueHooked) {
+        app.__pm4aSchedulerLoraQueueHooked = true;
+        const originalQueuePrompt = app.queuePrompt.bind(app);
+        app.queuePrompt = async function pm4aSchedulerQueuePrompt(...args) {
+          const active = findSchedulerNodes().filter((candidate) => {
+            const widget = candidate.widgets?.find((entry) => entry?.name === "config_json");
+            const conf = normalizeConfig(widget?.value);
+            return conf.lora_append && !candidate.__pm4aSchedulerBatchState?.skipQueueHook;
+          });
+          if (!active.length) return originalQueuePrompt(...args);
+
+          const restores = [];
+          try {
+            for (const schedulerNode of active) {
+              try {
+                const widget = schedulerNode.widgets?.find((entry) => entry?.name === "config_json");
+                const conf = normalizeConfig(widget?.value);
+                const indexWidgetLocal = schedulerNode.widgets?.find(
+                  (entry) => entry?.name === "execution_index",
+                );
+                const executionIndex = Number.isFinite(Number(indexWidgetLocal?.value))
+                  ? Math.trunc(Number(indexWidgetLocal.value))
+                  : conf.start_index;
+                const data = await fetchJson("/pm4a/api/scheduler/lora-plan", {
+                  config: conf,
+                  seed: seedWidgetValue(schedulerNode),
+                  execution_index: executionIndex,
+                  task_count: 1,
+                });
+                const appendText = data.lora_plans?.[0]?.append_text || "";
+                const loader = findLoraLoaderTarget(schedulerNode);
+                if (!loader || !appendText) continue;
+                const baseText = readLoraLoaderText(loader);
+                const next = mergeLoraAppendText(baseText, appendText);
+                if (next === baseText) continue;
+                writeLoraLoaderText(loader, next);
+                restores.push({ loader, baseText });
+              } catch (error) {
+                console.warn("[4A Scheduler] LoRA append skipped for single queue", error);
+              }
+            }
+            return await originalQueuePrompt(...args);
+          } finally {
+            for (const entry of restores) writeLoraLoaderText(entry.loader, entry.baseText);
+          }
+        };
+      }
+
+      Object.defineProperty(node, "__pm4aSchedulerBatchState", {
+        configurable: true,
+        get: () => batchState,
+      });
 
       const originalOnConfigure = node.onConfigure?.bind(node);
       node.onConfigure = function (info) {

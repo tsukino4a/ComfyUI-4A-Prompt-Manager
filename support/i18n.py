@@ -81,7 +81,25 @@ _EN_MESSAGES = {
     "content 必须是字符串：{filename}": "content must be a string: {filename}",
     "negative 必须是字符串：{filename}": "negative must be a string: {filename}",
     "note 必须是字符串：{filename}": "note must be a string: {filename}",
+    "lora 必须是对象{label}": "lora must be an object{label}",
+    "lora.text 必须是字符串{label}": "lora.text must be a string{label}",
+    "lora.hashes 必须是数组{label}": "lora.hashes must be an array{label}",
+    "lora.hashes 项必须是对象{label}": "lora.hashes entries must be objects{label}",
+    "lora.hashes 项需要 name 与 hash{label}": (
+        "lora.hashes entries require name and hash{label}"
+    ),
+    "lora 需要 hashes 才能保存{label}": (
+        "lora requires hashes to be saved{label}"
+    ),
     "content 不能为空：{filename}": "content cannot be empty: {filename}",
+    "选择种子必须是整数": "Selection seed must be an integer",
+    "预览 LoRA 计划失败：{error}": "Failed to preview LoRA plan: {error}",
+    "第 {index} 条提示词的 lora 无效：{error}": (
+        "lora on prompt {index} is invalid: {error}"
+    ),
+    "第 {index} 条 TXT Wildcard 不支持 negative、note 或 lora": (
+        "TXT wildcard {index} does not support negative, note, or lora"
+    ),
     "标题不能为空": "Title cannot be empty",
     "标题不能超过 200 个字符": "Title cannot exceed 200 characters",
     "标题包含文件名不允许使用的字符": (
@@ -318,10 +336,20 @@ _EN_MESSAGES = {
     "没有找到同名、Hash 或 Civitai 版本一致的本地模型": (
         "No local model matched the name, hash, or Civitai version"
     ),
+    "没有找到同名、Hash 或 Civitai 版本一致的本地{kind}": (
+        "No local {kind} matched the name, hash, or Civitai version"
+    ),
     "没有找到同名模型，图片也没有可用的模型 Hash 或 Civitai 版本 ID": (
         "No model with the same name was found, and the image has no usable "
         "model hash or Civitai version ID"
     ),
+    "没有找到同名{kind}，也没有可用的 Hash 或 Civitai 版本 ID": (
+        "No {kind} with the same name was found, and no usable hash or "
+        "Civitai version ID was available"
+    ),
+    "LoRA 匹配失败：{error}": "LoRA resolve failed: {error}",
+    "模型": "model",
+    "LoRA": "LoRA",
     "提示词内容为空，无法转换：{path}": (
         "Prompt content is empty and cannot be converted: {path}"
     ),

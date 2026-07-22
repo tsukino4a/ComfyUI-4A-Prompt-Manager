@@ -13,18 +13,22 @@ from typing import Any, Iterable, Optional
 
 try:
     from ..domain.wildcard_syntax import reference_keys
+    from ..storage.prompt_documents import merge_lora_texts
     from ..support.i18n import tr
     from . import prompt_library
     from .wildcard_expansion import (
         LibraryWildcardResolver,
+        expand_prompt,
         normalize_key,
     )
 except ImportError:  # standalone preview
     from domain.wildcard_syntax import reference_keys  # type: ignore
+    from storage.prompt_documents import merge_lora_texts  # type: ignore
     from support.i18n import tr  # type: ignore
     from services import prompt_library  # type: ignore
     from services.wildcard_expansion import (  # type: ignore
         LibraryWildcardResolver,
+        expand_prompt,
         normalize_key,
     )
 
@@ -96,6 +100,7 @@ def normalize_config(value: Any) -> dict[str, Any]:
         "task_count": task_count,
         "negative": negative,
         "tracks": tracks,
+        "lora_append": bool(value.get("lora_append", False)),
     }
 
 
@@ -202,7 +207,63 @@ def _prune_runs(now: Optional[float] = None) -> None:
         _runs.popitem(last=False)
 
 
-def prepare_run(config: Any, task_count: int) -> dict[str, Any]:
+def _collect_lora_append_text(
+    clean: dict[str, Any],
+    *,
+    resolver: LibraryWildcardResolver,
+    selection_seed: int,
+    execution_index: int,
+) -> str:
+    """Dry-run the same track expansions as the node and merge selected LoRAs."""
+    texts: list[str] = []
+    for track in clean["tracks"]:
+        if not track["enabled"]:
+            continue
+        expanded = expand_prompt(
+            track["text"],
+            resolver=resolver,
+            seed=selection_seed,
+            mode=track["mode"],
+            execution_index=execution_index,
+            track_id=track["id"],
+        )
+        texts.extend(expanded.lora_texts)
+    return merge_lora_texts(*texts)
+
+
+def plan_lora_appends(
+    config: Any,
+    *,
+    seed: int,
+    start_index: int,
+    task_count: int,
+    resolver: Optional[LibraryWildcardResolver] = None,
+) -> list[dict[str, str]]:
+    clean = normalize_config(config)
+    active_resolver = resolver or prompt_library.snapshot_resolver()
+    selection_seed = int(seed)
+    start = max(0, int(start_index))
+    count = max(1, int(task_count))
+    return [
+        {
+            "execution_index": start + offset,
+            "append_text": _collect_lora_append_text(
+                clean,
+                resolver=active_resolver,
+                selection_seed=selection_seed,
+                execution_index=start + offset,
+            ),
+        }
+        for offset in range(count)
+    ]
+
+
+def prepare_run(
+    config: Any,
+    task_count: int,
+    *,
+    seed: int = 0,
+) -> dict[str, Any]:
     clean = normalize_config(config)
     try:
         count = int(task_count)
@@ -210,6 +271,10 @@ def prepare_run(config: Any, task_count: int) -> dict[str, Any]:
         raise ValueError(tr("任务数量必须是整数")) from exc
     if count < 1:
         raise ValueError(tr("任务数量至少为 1"))
+    try:
+        selection_seed = int(seed)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(tr("选择种子必须是整数")) from exc
 
     resolver = prompt_library.snapshot_resolver()
     folders = [
@@ -240,22 +305,34 @@ def prepare_run(config: Any, task_count: int) -> dict[str, Any]:
                     )
                 )
 
+    lora_plans: list[dict[str, str]] = []
+    if clean.get("lora_append"):
+        lora_plans = plan_lora_appends(
+            clean,
+            seed=selection_seed,
+            start_index=clean["start_index"],
+            task_count=count,
+            resolver=resolver,
+        )
+
     run_id = uuid.uuid4().hex
     now = time.time()
     with _run_lock:
         _prune_runs(now)
         _runs[run_id] = {
             "resolver": resolver,
-            "selection_seed": None,
+            "selection_seed": selection_seed,
             "remaining": count,
             "last_access": now,
         }
     return {
         "run_id": run_id,
+        "selection_seed": selection_seed,
         "counts": {
             key: resolver.option_count(key)
             for key in folders
         },
+        "lora_plans": lora_plans,
     }
 
 

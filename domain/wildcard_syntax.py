@@ -16,6 +16,7 @@ class WildcardCandidate:
     key: str
     content: str
     negative: str = ""
+    lora_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class ExpansionResult:
     text: str
     negatives: tuple[str, ...] = ()
     selected_keys: tuple[str, ...] = ()
+    lora_texts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,7 @@ class _RuntimeState:
 class _ResultAccumulator:
     negatives: list[str]
     selected_keys: list[str]
+    lora_texts: list[str]
 
 
 _COUNT_RE = re.compile(r"(?:(\d+)(?:-(\d*)?)?|-(\d+))\Z")
@@ -569,6 +572,8 @@ def _candidate_content(
     if candidate.negative:
         accumulator.negatives.append(candidate.negative)
     accumulator.selected_keys.append(candidate.key)
+    if candidate.lora_text:
+        accumulator.lora_texts.append(candidate.lora_text)
     return _expand_nodes(
         parse(candidate.content),
         resolver,
@@ -747,7 +752,7 @@ def expand(
         raise WildcardSyntaxError(f"无效的通配符选择模式：{context.mode}")
     if context.max_depth < 1:
         raise WildcardSyntaxError("通配符最大递归深度必须至少为 1")
-    accumulator = _ResultAccumulator([], [])
+    accumulator = _ResultAccumulator([], [], [])
     expanded = _expand_nodes(
         parse(text),
         resolver,
@@ -760,4 +765,5 @@ def expand(
         text=expanded,
         negatives=tuple(accumulator.negatives),
         selected_keys=tuple(accumulator.selected_keys),
+        lora_texts=tuple(accumulator.lora_texts),
     )

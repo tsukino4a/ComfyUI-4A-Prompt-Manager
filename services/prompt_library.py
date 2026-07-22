@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable, Optional
 
 try:
     from ..domain import wildcard_syntax
+    from ..integrations.comfyui.model_resolver import remap_lora_payload
     from ..storage import library_metadata as metadata
     from ..storage.prompt_documents import (
         IMAGE_EXTS,
@@ -26,6 +27,8 @@ try:
         _read_json_prompt,
         _read_txt_content,
         _write_txt_wildcard,
+        empty_lora_payload,
+        normalize_lora_payload,
         parse_txt_options,
         read_prompt_document,
         read_txt_text,
@@ -47,6 +50,7 @@ try:
     )
 except ImportError:  # standalone preview
     from domain import wildcard_syntax  # type: ignore
+    from integrations.comfyui.model_resolver import remap_lora_payload  # type: ignore
     from storage import library_metadata as metadata  # type: ignore
     from storage.prompt_documents import (  # type: ignore
         IMAGE_EXTS,
@@ -59,6 +63,8 @@ except ImportError:  # standalone preview
         _read_json_prompt,
         _read_txt_content,
         _write_txt_wildcard,
+        empty_lora_payload,
+        normalize_lora_payload,
         parse_txt_options,
         read_prompt_document,
         read_txt_text,
@@ -94,6 +100,7 @@ _file_paths: dict[str, Path] = {}
 _display_paths: dict[str, str] = {}
 _negative_dict: dict[str, str] = {}
 _note_dict: dict[str, str] = {}
+_lora_dict: dict[str, dict[str, Any]] = {}
 _folder_display_paths: dict[str, str] = {}
 _conflict_keys: tuple[str, ...] = ()
 _loaded_root: Optional[Path] = None
@@ -115,6 +122,7 @@ def _entry_capabilities(entry_format: str) -> dict[str, bool]:
         "content_edit": not is_txt,
         "negative": not is_txt,
         "note": not is_txt,
+        "lora": not is_txt,
         "image": True,
         "generation": not is_txt,
         "external_edit": is_txt,
@@ -191,7 +199,7 @@ def _build_folder_indexes(
 def reload(root: Optional[Path] = None) -> None:
     """Scan wildcards directory into file and folder dictionaries."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict
+    global _display_paths, _negative_dict, _note_dict, _lora_dict
     global _folder_display_paths, _conflict_keys, _loaded_root
 
     root = Path(root) if root is not None else get_wildcards_path()
@@ -200,6 +208,7 @@ def reload(root: Optional[Path] = None) -> None:
     display_paths: dict[str, str] = {}
     negative_dict: dict[str, str] = {}
     note_dict: dict[str, str] = {}
+    lora_dict: dict[str, dict[str, Any]] = {}
 
     if not root.is_dir():
         logger.warning("Wildcards root does not exist: %s", root)
@@ -210,6 +219,7 @@ def reload(root: Optional[Path] = None) -> None:
             _display_paths = {}
             _negative_dict = {}
             _note_dict = {}
+            _lora_dict = {}
             _folder_display_paths = {}
             _conflict_keys = ()
             _loaded_root = root
@@ -242,6 +252,7 @@ def reload(root: Optional[Path] = None) -> None:
         display_paths[key] = display_path
         negative_dict[key] = ""
         note_dict[key] = ""
+        lora_dict[key] = empty_lora_payload()
 
     conflict_keys: set[str] = set()
     # JSON and TXT with the same logical key are ambiguous and neither is indexed.
@@ -267,6 +278,7 @@ def reload(root: Optional[Path] = None) -> None:
             display_paths.pop(key, None)
             negative_dict.pop(key, None)
             note_dict.pop(key, None)
+            lora_dict.pop(key, None)
             logger.error(
                 "Conflicting TXT and JSON prompt documents share key %s", key
             )
@@ -281,6 +293,7 @@ def reload(root: Optional[Path] = None) -> None:
         display_paths[key] = display_path
         negative_dict[key] = document.negative
         note_dict[key] = document.note
+        lora_dict[key] = dict(document.lora)
 
     try:
         metadata.reconcile_entries(
@@ -307,6 +320,7 @@ def reload(root: Optional[Path] = None) -> None:
         _display_paths = display_paths
         _negative_dict = negative_dict
         _note_dict = note_dict
+        _lora_dict = lora_dict
         _folder_display_paths = folder_display_paths
         _conflict_keys = tuple(sorted(conflict_keys))
         _loaded_root = root
@@ -336,6 +350,7 @@ def snapshot_resolver() -> LibraryWildcardResolver:
             tuple(_folder_dict),
             _negative_dict,
             _display_paths,
+            _lora_dict,
         )
 
 
@@ -416,7 +431,7 @@ def create_folder(parent: str, name: str) -> dict:
 def rename_folder(folder: str, name: str) -> dict:
     """Rename one indexed folder while preserving prompt metadata and keys."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _folder_display_paths
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _folder_display_paths
 
     ensure_loaded()
     folder_key = normalize_key(folder)
@@ -456,6 +471,7 @@ def rename_folder(folder: str, name: str) -> dict:
         updated_display_paths: dict[str, str] = {}
         updated_negative_dict: dict[str, str] = {}
         updated_note_dict: dict[str, str] = {}
+        updated_lora_dict: dict[str, dict[str, Any]] = {}
         key_moves: dict[str, str] = {}
         source_prefix = folder_key + "/"
 
@@ -482,6 +498,8 @@ def rename_folder(folder: str, name: str) -> dict:
                 updated_negative_dict[next_key] = _negative_dict[current_key]
             if current_key in _note_dict:
                 updated_note_dict[next_key] = _note_dict[current_key]
+            if current_key in _lora_dict:
+                updated_lora_dict[next_key] = dict(_lora_dict[current_key])
 
         renamed = False
         try:
@@ -502,6 +520,7 @@ def rename_folder(folder: str, name: str) -> dict:
         _display_paths = updated_display_paths
         _negative_dict = updated_negative_dict
         _note_dict = updated_note_dict
+        _lora_dict = updated_lora_dict
         _folder_dict = updated_folder_dict
         _folder_display_paths = updated_folder_display_paths
 
@@ -536,6 +555,7 @@ def create_entry(
     *,
     negative: str = "",
     note: str = "",
+    lora: Optional[dict[str, Any]] = None,
 ) -> dict:
     """Create a JSON prompt inside an existing folder without overwriting."""
     ensure_loaded()
@@ -545,6 +565,7 @@ def create_entry(
         raise ValueError(tr("提示词内容不能为空"))
     normalized_negative = _normalize_optional_prompt(negative)
     normalized_note = note.strip()
+    normalized_lora = normalize_lora_payload(lora, require_hashes_when_text=True)
 
     with _lock:
         folder_path, folder_key, folder_display = _resolve_folder_path_locked(folder)
@@ -557,6 +578,7 @@ def create_entry(
             content=normalized_content,
             negative=normalized_negative,
             note=normalized_note,
+            lora=normalized_lora,
         )
         display_path = f"{folder_display}/{entry_name}" if folder_display else entry_name
         root = Path(_loaded_root or get_wildcards_path())
@@ -565,6 +587,7 @@ def create_entry(
         _display_paths[target_key] = display_path
         _negative_dict[target_key] = normalized_negative
         _note_dict[target_key] = normalized_note
+        _lora_dict[target_key] = normalized_lora
 
         root_options = _folder_dict.setdefault(ROOT_WILDCARD_KEY, [])
         if normalized_content not in root_options:
@@ -645,6 +668,14 @@ def export_prompt_bundle(
                     "content": content,
                     "negative": "" if is_txt else _negative_dict.get(key, ""),
                     "note": "" if is_txt else _note_dict.get(key, ""),
+                    **(
+                        {}
+                        if is_txt or not (
+                            _lora_dict.get(key, {}).get("text")
+                            or _lora_dict.get(key, {}).get("hashes")
+                        )
+                        else {"lora": dict(_lora_dict.get(key) or empty_lora_payload())}
+                    ),
                 }
             )
             if progress_callback:
@@ -698,6 +729,7 @@ def _validated_import_document(
     storage = raw.get("storage", "json")
     negative = raw.get("negative", "")
     note = raw.get("note", "")
+    lora_raw = raw.get("lora")
     if not isinstance(content, str):
         raise ValueError(
             tr("第 {index} 条提示词的 content 必须是字符串", index=index)
@@ -710,11 +742,31 @@ def _validated_import_document(
         raise ValueError(tr("第 {index} 条提示词的 note 必须是字符串", index=index))
     if storage not in {"json", "txt"}:
         raise ValueError(tr("第 {index} 条提示词的 storage 无效", index=index))
+    try:
+        normalized_lora = (
+            empty_lora_payload()
+            if storage == "txt"
+            else normalize_lora_payload(lora_raw, require_hashes_when_text=True)
+        )
+    except ValueError as exc:
+        raise ValueError(
+            tr("第 {index} 条提示词的 lora 无效：{error}", index=index, error=exc)
+        ) from exc
+    if storage != "txt" and (normalized_lora.get("text") or normalized_lora.get("hashes")):
+        # Same strategy as Meta Apply model resolve: local name first, then hash.
+        try:
+            remapped = remap_lora_payload(normalized_lora)
+            normalized_lora = normalize_lora_payload(
+                remapped,
+                require_hashes_when_text=True,
+            )
+        except Exception as exc:
+            logger.warning("LoRA remap skipped for import item %s: %s", index, exc)
     if storage == "txt":
-        if negative.strip() or note.strip():
+        if negative.strip() or note.strip() or (lora_raw not in (None, "", {})):
             raise ValueError(
                 tr(
-                    "第 {index} 条 TXT Wildcard 不支持 negative 或 note",
+                    "第 {index} 条 TXT Wildcard 不支持 negative、note 或 lora",
                     index=index,
                 )
             )
@@ -730,6 +782,7 @@ def _validated_import_document(
         "content": normalized_content,
         "negative": "" if storage == "txt" else _normalize_optional_prompt(negative),
         "note": "" if storage == "txt" else note.strip(),
+        "lora": normalized_lora,
         "metadata": _validated_import_metadata(raw.get("metadata"), index),
     }
 
@@ -778,7 +831,10 @@ def _plan_bulk_import_locked(
         for index, raw in enumerate(prompts, 1)
     ]
     if sum(
-        len(document["content"]) + len(document["negative"]) + len(document["note"])
+        len(document["content"])
+        + len(document["negative"])
+        + len(document["note"])
+        + len(str(document.get("lora") or ""))
         for document in documents
     ) > MAX_BULK_IMPORT_CHARACTERS:
         raise ValueError(tr("导入的提示词文本总量过大"))
@@ -903,6 +959,7 @@ def import_prompt_bundle(
                         content=item["content"],
                         negative=item["negative"],
                         note=item["note"],
+                        lora=item.get("lora") or empty_lora_payload(),
                     )
                 created_files.append(target)
                 if progress_callback:
@@ -1259,7 +1316,7 @@ def operate_items(
 ) -> dict:
     """Delete, copy, or move indexed entries without rescanning the library."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _folder_display_paths
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _folder_display_paths
 
     ensure_loaded()
     if action not in {"delete", "copy", "move"}:
@@ -1321,6 +1378,7 @@ def operate_items(
         original_display_paths = dict(_display_paths)
         original_negative_dict = dict(_negative_dict)
         original_note_dict = dict(_note_dict)
+        original_lora_dict = dict(_lora_dict)
         original_folder_displays = dict(_folder_display_paths)
         indexed_paths = {_path_identity(path): key for key, path in original_file_paths.items()}
         reserved_targets: set[str] = set()
@@ -1454,6 +1512,9 @@ def operate_items(
         next_display_paths = dict(original_display_paths)
         next_negative_dict = dict(original_negative_dict)
         next_note_dict = dict(original_note_dict)
+        next_lora_dict = {
+            key: dict(value) for key, value in original_lora_dict.items()
+        }
         key_moves: dict[str, str] = {}
         key_copies: dict[str, str] = {}
         deleted_keys: set[str] = set()
@@ -1465,6 +1526,7 @@ def operate_items(
                 next_display_paths.pop(old_key, None)
                 next_negative_dict.pop(old_key, None)
                 next_note_dict.pop(old_key, None)
+                next_lora_dict.pop(old_key, None)
             if action == "delete" or target_path is None:
                 deleted_keys.add(old_key)
                 return
@@ -1474,6 +1536,9 @@ def operate_items(
             next_display_paths[new_key] = new_display
             next_negative_dict[new_key] = original_negative_dict.get(old_key, "")
             next_note_dict[new_key] = original_note_dict.get(old_key, "")
+            next_lora_dict[new_key] = dict(
+                original_lora_dict.get(old_key) or empty_lora_payload()
+            )
             if action == "move":
                 key_moves[old_key] = new_key
             else:
@@ -1533,6 +1598,7 @@ def operate_items(
         _display_paths = next_display_paths
         _negative_dict = next_negative_dict
         _note_dict = next_note_dict
+        _lora_dict = next_lora_dict
         _folder_dict = next_folder_dict
         _folder_display_paths = next_folder_displays
 
@@ -1610,9 +1676,16 @@ def list_entries(
                     continue
 
             if search_n:
+                lora_blob = _lora_dict.get(key) or {}
+                lora_text = (
+                    lora_blob.get("text", "")
+                    if isinstance(lora_blob, dict)
+                    else ""
+                )
                 hay = (
                     f"{key} {display_path} {name} {' '.join(lines)} "
-                    f"{_negative_dict.get(key, '')} {_note_dict.get(key, '')}"
+                    f"{_negative_dict.get(key, '')} {_note_dict.get(key, '')} "
+                    f"{lora_text}"
                 ).lower()
                 if search_n not in hay:
                     continue
@@ -1678,6 +1751,11 @@ def get_entry(key: str) -> Optional[dict]:
                 "content": content,
                 "negative": _negative_dict.get(n, ""),
                 "note": _note_dict.get(n, ""),
+                "lora": (
+                    empty_lora_payload()
+                    if is_txt
+                    else dict(_lora_dict.get(n) or empty_lora_payload())
+                ),
                 "lines": list(preview_options),
                 "truncated": is_txt and len(options) > len(preview_options),
                 "capabilities": _entry_capabilities(entry_format),
@@ -1737,13 +1815,15 @@ def _update_json_entry_locked(
     content: Optional[str],
     negative: Optional[str],
     note: Optional[str],
+    lora: Optional[dict[str, Any]],
 ) -> dict:
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _folder_display_paths
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _folder_display_paths
 
     current_content = _file_dict[normalized_key][0]
     current_negative = _negative_dict.get(normalized_key, "")
     current_note = _note_dict.get(normalized_key, "")
+    current_lora = dict(_lora_dict.get(normalized_key) or empty_lora_payload())
     next_content = _normalize_txt_text(content) if content is not None else current_content
     if content is not None and not next_content:
         raise ValueError(tr("提示词内容不能为空"))
@@ -1751,6 +1831,11 @@ def _update_json_entry_locked(
         _normalize_optional_prompt(negative) if negative is not None else current_negative
     )
     next_note = note.strip() if note is not None else current_note
+    next_lora = (
+        normalize_lora_payload(lora, require_hashes_when_text=True)
+        if lora is not None
+        else current_lora
+    )
 
     target_name = _validated_entry_name(name) if name is not None else source_path.stem
     target_path = source_path.with_name(f"{target_name}.json")
@@ -1775,17 +1860,20 @@ def _update_json_entry_locked(
     updated_display_paths = dict(_display_paths)
     updated_negative_dict = dict(_negative_dict)
     updated_note_dict = dict(_note_dict)
+    updated_lora_dict = {key: dict(value) for key, value in _lora_dict.items()}
     if target_key != normalized_key:
         updated_file_dict.pop(normalized_key, None)
         updated_file_paths.pop(normalized_key, None)
         updated_display_paths.pop(normalized_key, None)
         updated_negative_dict.pop(normalized_key, None)
         updated_note_dict.pop(normalized_key, None)
+        updated_lora_dict.pop(normalized_key, None)
     updated_file_dict[target_key] = [next_content]
     updated_file_paths[target_key] = target_path
     updated_display_paths[target_key] = display_path
     updated_negative_dict[target_key] = next_negative
     updated_note_dict[target_key] = next_note
+    updated_lora_dict[target_key] = next_lora
     updated_folder_dict, updated_folder_display_paths = _build_folder_indexes(
         updated_file_dict, updated_display_paths, root
     )
@@ -1794,6 +1882,7 @@ def _update_json_entry_locked(
         next_content != current_content
         or next_negative != current_negative
         or next_note != current_note
+        or next_lora != current_lora
     )
     if fields_changed:
         metadata.archive_files(
@@ -1815,6 +1904,7 @@ def _update_json_entry_locked(
                 content=next_content,
                 negative=next_negative,
                 note=next_note,
+                lora=next_lora,
             )
     except Exception:
         for current, original in reversed(renamed):
@@ -1827,6 +1917,7 @@ def _update_json_entry_locked(
     _display_paths = updated_display_paths
     _negative_dict = updated_negative_dict
     _note_dict = updated_note_dict
+    _lora_dict = updated_lora_dict
     _folder_dict = updated_folder_dict
     _folder_display_paths = updated_folder_display_paths
     try:
@@ -1852,6 +1943,7 @@ def update_entry(
     content: Optional[str] = None,
     negative: Optional[str] = None,
     note: Optional[str] = None,
+    lora: Optional[dict[str, Any]] = None,
 ) -> dict:
     """Update a prompt file and optionally rename its sidecar previews."""
     global _file_dict, _folder_dict, _file_paths
@@ -1859,7 +1951,13 @@ def update_entry(
 
     ensure_loaded()
     normalized_key = normalize_key(key)
-    if name is None and content is None and negative is None and note is None:
+    if (
+        name is None
+        and content is None
+        and negative is None
+        and note is None
+        and lora is None
+    ):
         raise ValueError(tr("没有可保存的修改"))
 
     with _lock:
@@ -1876,8 +1974,9 @@ def update_entry(
                 content=content,
                 negative=negative,
                 note=note,
+                lora=lora,
             )
-        if content is not None or negative is not None or note is not None:
+        if content is not None or negative is not None or note is not None or lora is not None:
             raise ValueError(tr("TXT Wildcard 内容只能使用外部文本编辑器修改"))
 
         target_name = _validated_entry_name(name) if name is not None else source_path.stem

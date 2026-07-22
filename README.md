@@ -16,6 +16,13 @@ A full, easy-to-use library UI. Prompts live as a normal folder tree (JSON cards
 
 ![Browser](docs/images/browser.png)
 
+### JSON card LoRAs + wildcard auto-embed LoRA
+
+JSON cards can store LoRAs (pick via [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager); paste `<lora:name:strength>` tags to batch-add exact matches). When a Scheduler track resolves cards through wildcard syntax (e.g. `__path__`), turn on **Auto-embed Wildcard LoRAs** to append those LoRAs to the Lora Loader before queueing (skip names already present). Only cards reached via wildcards are embedded — plain fixed text is not.
+
+<!-- TODO: replace with the final screenshot -->
+![JSON card LoRAs / wildcard auto-embed LoRA](docs/images/json_card_lora.png)
+
 ### Multi-track Prompt Scheduler
 
 Stack positives across tracks with random / sequence / shuffle, Impact-compatible wildcard parsing (`__key__`, `{a|b}`, weights, multi-select, folder and global name lookup), and optional STRING inputs wired into each track from the graph.

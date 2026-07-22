@@ -24,9 +24,12 @@
   },
   "Meta Apply (4A Prompt Manager)": {
     "display_name": "Meta Apply (4A Prompt Manager)",
-    "description": "Drop or pick an image to automatically apply detected positive/negative prompts, models, generation parameters, double-sample parameters, and LoRA text to the current workflow.",
+    "description": "Drop or pick an image to apply detected metadata. Use the top toggles to enable Model/LoRA, inference parameters, and prompt independently.",
     "inputs": {
-      "image": {"name": "image", "tooltip": "Choose or upload an image; all recognized metadata is applied automatically."}
+      "自动应用模型/LoRA": {"name": "Auto-apply Model/LoRA", "tooltip": "When enabled, apply Checkpoint/UNet and LoRA Loader text."},
+      "自动应用推理参数": {"name": "Auto-apply Inference Parameters", "tooltip": "When enabled, apply generation and double-sample parameters."},
+      "自动应用提示词": {"name": "Auto-apply Prompt", "tooltip": "When enabled, apply positive and negative prompts."},
+      "image": {"name": "image", "tooltip": "Choose or upload an image; recognized metadata is applied according to the toggles."}
     }
   },
   "Input Parameters (4A Prompt Manager)": {

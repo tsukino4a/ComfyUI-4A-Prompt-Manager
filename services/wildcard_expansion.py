@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 try:
     from ..domain import wildcard_syntax
@@ -28,6 +28,15 @@ def _natural_display_key(value: str) -> tuple[tuple[int, object], ...]:
     )
 
 
+def _lora_text_of(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        text = value.get("text", "")
+        return text.strip() if isinstance(text, str) else ""
+    return ""
+
+
 @dataclass(frozen=True)
 class LibraryWildcardResolver:
     """Immutable, structured view of one loaded wildcard-library snapshot."""
@@ -36,6 +45,7 @@ class LibraryWildcardResolver:
     folder_entry_keys: Mapping[str, tuple[str, ...]]
     negative_dict: Mapping[str, str]
     display_paths: Mapping[str, str]
+    lora_dict: Mapping[str, Any]
     candidate_dict: Mapping[str, tuple[wildcard_syntax.WildcardCandidate, ...]]
     folder_candidate_dict: Mapping[
         str, tuple[wildcard_syntax.WildcardCandidate, ...]
@@ -48,6 +58,7 @@ class LibraryWildcardResolver:
         folder_keys: Iterable[str],
         negative_dict: Mapping[str, str],
         display_paths: Mapping[str, str],
+        lora_dict: Mapping[str, Any] | None = None,
     ) -> "LibraryWildcardResolver":
         files = {
             key: tuple(values)
@@ -60,6 +71,10 @@ class LibraryWildcardResolver:
         }
         negatives = {
             key: negative_dict.get(key, "")
+            for key in files
+        }
+        loras = {
+            key: lora_dict.get(key, "") if lora_dict is not None else ""
             for key in files
         }
         candidate_keys = list(files)
@@ -83,6 +98,7 @@ class LibraryWildcardResolver:
                     key=key,
                     content=content,
                     negative=negatives.get(key, ""),
+                    lora_text=_lora_text_of(loras.get(key)),
                 )
                 for content in options
             )
@@ -101,6 +117,7 @@ class LibraryWildcardResolver:
             folder_entry_keys=MappingProxyType(folders),
             negative_dict=MappingProxyType(negatives),
             display_paths=MappingProxyType(displays),
+            lora_dict=MappingProxyType(loras),
             candidate_dict=MappingProxyType(candidates),
             folder_candidate_dict=MappingProxyType(folder_candidates),
         )

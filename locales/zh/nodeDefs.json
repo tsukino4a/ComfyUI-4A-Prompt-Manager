@@ -24,9 +24,12 @@
   },
   "Meta Apply (4A Prompt Manager)": {
     "display_name": "元数据一键应用（4A 提示词管理器）",
-    "description": "拖入或选择图片后，自动将识别到的正面/负面、模型、生成参数、二次采样参数与 LoRA 应用到当前工作流。",
+    "description": "拖入或选择图片后，按顶部开关将识别到的模型/LoRA、推理参数与提示词应用到当前工作流。",
     "inputs": {
-      "image": {"name": "图像", "tooltip": "选择或上传图片；读取后自动应用全部可识别元数据。"}
+      "自动应用模型/LoRA": {"name": "自动应用模型/LoRA", "tooltip": "开启后应用 Checkpoint/UNet 与 LoRA Loader 文本。"},
+      "自动应用推理参数": {"name": "自动应用推理参数", "tooltip": "开启后应用生成参数与双采样参数。"},
+      "自动应用提示词": {"name": "自动应用提示词", "tooltip": "开启后应用正面与负面提示词。"},
+      "image": {"name": "图像", "tooltip": "选择或上传图片；读取后按开关应用可识别元数据。"}
     }
   },
   "Input Parameters (4A Prompt Manager)": {

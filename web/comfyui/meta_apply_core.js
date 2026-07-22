@@ -176,6 +176,72 @@ export async function resolveLocalModel(entry, widgetName) {
   return data;
 }
 
+export async function resolveLocalLora(entry) {
+  const response = await pm4aFetch("/pm4a/api/lora/resolve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: String(entry?.name || ""),
+      hash: String(entry?.hash || ""),
+    }),
+  });
+  let data = null;
+  try {
+    data = await response.json();
+  } catch (_) {
+    // Preserve the HTTP status when a proxy returns a non-JSON error page.
+  }
+  if (!response.ok || !data?.success || !data?.value) {
+    throw new Error(data?.error || t("LoRA 匹配服务返回 {status}", { status: response.status }));
+  }
+  return data;
+}
+
+function loraHashLookup(hashes) {
+  const map = new Map();
+  for (const entry of Array.isArray(hashes) ? hashes : []) {
+    const name = String(entry?.name || "").trim();
+    const hash = String(entry?.hash || entry?.sha256 || "").trim();
+    if (!name || !hash) continue;
+    const stem = name.replace(/\\/g, "/").split("/").pop()
+      ?.replace(/\.(?:safetensors|ckpt|pt|pth|bin)$/i, "")
+      || name;
+    map.set(name.toLowerCase(), hash);
+    map.set(stem.toLowerCase(), hash);
+  }
+  return map;
+}
+
+/** Remap `<lora:name:strength>` tags to local files (name first, then hash). */
+export async function remapLoraTextFromPayload(loras) {
+  const text = typeof loras?.text === "string" ? loras.text.trim() : "";
+  if (!text) return "";
+  const hashByName = loraHashLookup(loras?.hashes);
+  const tags = [];
+  const seen = new Set();
+  for (const entry of parseLoraTags(text)) {
+    const key = entry.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const hash = hashByName.get(key) || "";
+    let localName = entry.name;
+    try {
+      const resolved = await resolveLocalLora({ name: entry.name, hash });
+      localName = String(resolved.tag_name || resolved.value || entry.name)
+        .replace(/\\/g, "/")
+        .split("/")
+        .pop()
+        ?.replace(/\.(?:safetensors|ckpt|pt|pth|bin)$/i, "")
+        || entry.name;
+    } catch (_) {
+      // Keep the original name when local resolve fails.
+    }
+    const strength = entry.strength || "1";
+    tags.push(`<lora:${localName}:${strength}>`);
+  }
+  return tags.join(" ");
+}
+
 export function setWidgetValue(node, widget, value) {
   if (!widget) return;
   widget.value = value;
@@ -272,8 +338,50 @@ export function withGraphChangeTransaction(node, update) {
   }
 }
 
+export function loraLoaderTextWidget(node) {
+  return node?.inputWidget || node?.widgets?.find((candidate) => candidate.name === "text") || null;
+}
+
+export function readLoraLoaderText(node) {
+  const widget = loraLoaderTextWidget(node);
+  return widget ? String(widget.value ?? "") : "";
+}
+
+export function parseLoraTags(text) {
+  if (typeof text !== "string" || !text) return [];
+  const tags = [];
+  const seen = new Set();
+  for (const match of text.matchAll(/<lora:([^>:]+)(?::([^>]*))?>/gi)) {
+    const name = String(match[1] || "").trim();
+    const tag = String(match[0] || "").trim();
+    if (!name || !tag) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push({ name, tag, strength: String(match[2] ?? "").trim() });
+  }
+  return tags;
+}
+
+export function mergeLoraAppendText(baseText, appendText) {
+  const base = typeof baseText === "string" ? baseText : "";
+  const extra = typeof appendText === "string" ? appendText : "";
+  if (!extra.trim()) return base;
+  const existing = new Set(parseLoraTags(base).map((entry) => entry.name.toLowerCase()));
+  const additions = [];
+  for (const entry of parseLoraTags(extra)) {
+    const key = entry.name.toLowerCase();
+    if (existing.has(key)) continue;
+    existing.add(key);
+    additions.push(entry.tag);
+  }
+  if (!additions.length) return base;
+  if (!base.trim()) return additions.join(" ");
+  return `${base.replace(/\s+$/g, "")} ${additions.join(" ")}`;
+}
+
 export function replaceLoraLoaderText(node, value) {
-  const widget = node?.inputWidget || node?.widgets?.find((candidate) => candidate.name === "text");
+  const widget = loraLoaderTextWidget(node);
   if (!widget) return false;
   setWidgetValue(node, widget, "");
   setWidgetValue(node, widget, value);
@@ -281,6 +389,10 @@ export function replaceLoraLoaderText(node, value) {
   node.graph?.setDirtyCanvas?.(true, true);
   node.graph?.change?.();
   return true;
+}
+
+export function writeLoraLoaderText(node, value) {
+  return replaceLoraLoaderText(node, value == null ? "" : String(value));
 }
 
 export async function convertNovelAITexts(payload, texts) {
@@ -456,9 +568,10 @@ export function applyDoubleSampleFromPayload(hostNode, payload) {
   });
 }
 
-export function applyLoraFromPayload(hostNode, payload) {
-  const textValue = typeof payload?.loras?.text === "string" ? payload.loras.text.trim() : "";
-  if (!textValue) return null;
+export async function applyLoraFromPayload(hostNode, payload) {
+  const rawText = typeof payload?.loras?.text === "string" ? payload.loras.text.trim() : "";
+  if (!rawText) return null;
+  const textValue = await remapLoraTextFromPayload(payload.loras) || rawText;
   const target = findLoraLoaderTarget(hostNode);
   if (!target) {
     throw new Error(loraLoaderNodes(hostNode.graph || app.graph).length
@@ -471,55 +584,67 @@ export function applyLoraFromPayload(hostNode, payload) {
   return t("已替换“{name}”", { name: target.title || `LoRA Loader #${target.id}` });
 }
 
-/** Apply every Meta Loader target available in the payload. */
-export async function applyAllFromPayload(hostNode, payload) {
+/**
+ * Apply Meta Loader targets available in the payload.
+ * @param {{ applyPrompt?: boolean, applyModelLora?: boolean, applyParameters?: boolean }} [options]
+ */
+export async function applyAllFromPayload(hostNode, payload, options = {}) {
+  const applyPrompt = options.applyPrompt !== false;
+  const applyModelLora = options.applyModelLora !== false;
+  const applyParameters = options.applyParameters !== false;
   const applied = [];
   const errors = [];
 
-  try {
-    applied.push(await applyPositiveFromPayload(hostNode, payload));
-  } catch (error) {
-    errors.push(t("{key}：{error}", { key: t("正面提示词"), error: error.message || error }));
-  }
+  if (applyPrompt) {
+    try {
+      applied.push(await applyPositiveFromPayload(hostNode, payload));
+    } catch (error) {
+      errors.push(t("{key}：{error}", { key: t("正面提示词"), error: error.message || error }));
+    }
 
-  try {
-    const message = await applyNegativeFromPayload(hostNode, payload);
-    if (message) applied.push(message);
-  } catch (error) {
-    errors.push(t("{key}：{error}", { key: t("负面"), error: error.message || error }));
-  }
-
-  const modelResult = await applyModelsFromPayload(hostNode, payload);
-  const modelCount = modelResult.applied.length;
-  if (modelCount) {
-    applied.push(modelCount === 1 ? t("模型 1 个") : t("模型 {count} 个", { count: modelCount }));
-  }
-  errors.push(...modelResult.errors);
-
-  try {
-    const message = applyInputParametersFromPayload(hostNode, payload);
-    if (message) applied.push(t("生成参数"));
-  } catch (error) {
-    if (payload?.parameters) {
-      errors.push(t("{key}：{error}", { key: t("生成参数"), error: error.message || error }));
+    try {
+      const message = await applyNegativeFromPayload(hostNode, payload);
+      if (message) applied.push(message);
+    } catch (error) {
+      errors.push(t("{key}：{error}", { key: t("负面"), error: error.message || error }));
     }
   }
 
-  try {
-    const message = applyDoubleSampleFromPayload(hostNode, payload);
-    if (message) applied.push(t("双采样参数"));
-  } catch (error) {
-    if (payload?.double_sample_parameters) {
-      errors.push(t("{key}：{error}", { key: t("双采样参数"), error: error.message || error }));
+  if (applyModelLora) {
+    const modelResult = await applyModelsFromPayload(hostNode, payload);
+    const modelCount = modelResult.applied.length;
+    if (modelCount) {
+      applied.push(modelCount === 1 ? t("模型 1 个") : t("模型 {count} 个", { count: modelCount }));
+    }
+    errors.push(...modelResult.errors);
+
+    try {
+      const message = await applyLoraFromPayload(hostNode, payload);
+      if (message) applied.push("LoRA");
+    } catch (error) {
+      if (typeof payload?.loras?.text === "string" && payload.loras.text.trim()) {
+        errors.push(t("{key}：{error}", { key: "LoRA", error: error.message || error }));
+      }
     }
   }
 
-  try {
-    const message = applyLoraFromPayload(hostNode, payload);
-    if (message) applied.push("LoRA");
-  } catch (error) {
-    if (typeof payload?.loras?.text === "string" && payload.loras.text.trim()) {
-      errors.push(t("{key}：{error}", { key: "LoRA", error: error.message || error }));
+  if (applyParameters) {
+    try {
+      const message = applyInputParametersFromPayload(hostNode, payload);
+      if (message) applied.push(t("生成参数"));
+    } catch (error) {
+      if (payload?.parameters) {
+        errors.push(t("{key}：{error}", { key: t("生成参数"), error: error.message || error }));
+      }
+    }
+
+    try {
+      const message = applyDoubleSampleFromPayload(hostNode, payload);
+      if (message) applied.push(t("双采样参数"));
+    } catch (error) {
+      if (payload?.double_sample_parameters) {
+        errors.push(t("{key}：{error}", { key: t("双采样参数"), error: error.message || error }));
+      }
     }
   }
 

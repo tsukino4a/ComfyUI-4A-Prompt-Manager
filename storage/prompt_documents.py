@@ -6,9 +6,9 @@ import json
 import os
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 try:
     from ..support.i18n import tr
@@ -19,6 +19,11 @@ except ImportError:  # standalone preview
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"}
+_LORA_TAG_RE = re.compile(r"<lora:([^>:]+)(?::([^>]*))?>", re.IGNORECASE)
+
+
+def empty_lora_payload() -> dict[str, Any]:
+    return {"text": "", "hashes": []}
 
 
 @dataclass(frozen=True)
@@ -28,6 +33,7 @@ class PromptDocument:
     raw_content: str
     negative: str = ""
     note: str = ""
+    lora: dict[str, Any] = field(default_factory=empty_lora_payload)
 
 
 def _normalize_txt_text(text: str) -> Optional[str]:
@@ -80,6 +86,107 @@ def parse_txt_options(text: str) -> list[str]:
     ]
 
 
+def lora_tag_names(text: str) -> list[str]:
+    """Return LoRA names from `<lora:name:strength>` tags in order."""
+    if not isinstance(text, str) or not text:
+        return []
+    return [match.group(1).strip() for match in _LORA_TAG_RE.finditer(text) if match.group(1).strip()]
+
+
+def normalize_lora_payload(
+    value: Any,
+    *,
+    require_hashes_when_text: bool = True,
+    filename: str = "",
+) -> dict[str, Any]:
+    """Normalize optional JSON-card `lora` to `{text, hashes}`."""
+    label = f"：{filename}" if filename else ""
+    if value is None:
+        return empty_lora_payload()
+    if value == "" or value == {}:
+        return empty_lora_payload()
+    if not isinstance(value, dict):
+        raise ValueError(tr("lora 必须是对象{label}", label=label))
+    text = value.get("text", "")
+    hashes_raw = value.get("hashes", [])
+    if not isinstance(text, str):
+        raise ValueError(tr("lora.text 必须是字符串{label}", label=label))
+    if hashes_raw is None:
+        hashes_raw = []
+    if not isinstance(hashes_raw, list):
+        raise ValueError(tr("lora.hashes 必须是数组{label}", label=label))
+    hashes: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for entry in hashes_raw:
+        if not isinstance(entry, dict):
+            raise ValueError(tr("lora.hashes 项必须是对象{label}", label=label))
+        name = str(entry.get("name", "")).strip()
+        digest = str(entry.get("hash", "")).strip()
+        if not name or not digest:
+            raise ValueError(tr("lora.hashes 项需要 name 与 hash{label}", label=label))
+        key = f"{name.casefold()}\0{digest.casefold()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        hashes.append({"name": name, "hash": digest})
+    tags = [
+        match.group(0).strip()
+        for match in _LORA_TAG_RE.finditer(text)
+        if match.group(0).strip()
+    ]
+    normalized_text = " ".join(dict.fromkeys(tags))
+    if not normalized_text and not hashes:
+        return empty_lora_payload()
+    if require_hashes_when_text and normalized_text and not hashes:
+        raise ValueError(tr("lora 需要 hashes 才能保存{label}", label=label))
+    return {"text": normalized_text, "hashes": hashes}
+
+
+def merge_lora_texts(*texts: str) -> str:
+    """Merge LoRA tag strings, skipping duplicate names (first wins)."""
+    tags: list[str] = []
+    seen: set[str] = set()
+    for text in texts:
+        if not isinstance(text, str) or not text.strip():
+            continue
+        for match in _LORA_TAG_RE.finditer(text):
+            name = match.group(1).strip()
+            tag = match.group(0).strip()
+            if not name or not tag:
+                continue
+            key = name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            tags.append(tag)
+    return " ".join(tags)
+
+
+def append_lora_text(base: str, extra: str) -> str:
+    """Append LoRA tags from extra that are not already named in base."""
+    base_text = base if isinstance(base, str) else ""
+    extra_text = extra if isinstance(extra, str) else ""
+    if not extra_text.strip():
+        return base_text
+    existing = {name.casefold() for name in lora_tag_names(base_text)}
+    additions: list[str] = []
+    for match in _LORA_TAG_RE.finditer(extra_text):
+        name = match.group(1).strip()
+        tag = match.group(0).strip()
+        if not name or not tag:
+            continue
+        key = name.casefold()
+        if key in existing:
+            continue
+        existing.add(key)
+        additions.append(tag)
+    if not additions:
+        return base_text
+    if not base_text.strip():
+        return " ".join(additions)
+    return f"{base_text.rstrip()} {' '.join(additions)}"
+
+
 def read_prompt_document(path: Path) -> PromptDocument:
     """Read one JSON card or traditional line-based TXT wildcard."""
     if path.suffix.casefold() == ".json":
@@ -90,6 +197,7 @@ def read_prompt_document(path: Path) -> PromptDocument:
             raw_content=document["content"],
             negative=document["negative"],
             note=document["note"],
+            lora=document["lora"],
         )
     if path.suffix.casefold() == ".txt":
         raw_content = read_txt_text(path)
@@ -119,7 +227,7 @@ def _normalize_optional_prompt(text: str) -> str:
     return _normalize_txt_text(text) or ""
 
 
-def _read_json_prompt(path: Path) -> dict[str, str]:
+def _read_json_prompt(path: Path) -> dict[str, Any]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -144,17 +252,34 @@ def _read_json_prompt(path: Path) -> dict[str, str]:
         "content": normalized_content,
         "negative": _normalize_optional_prompt(negative),
         "note": note.strip(),
+        "lora": normalize_lora_payload(
+            raw.get("lora"),
+            require_hashes_when_text=False,
+            filename=path.name,
+        ),
     }
 
 
 def _write_json_prompt(
-    path: Path, *, content: str, negative: str, note: str
+    path: Path,
+    *,
+    content: str,
+    negative: str,
+    note: str,
+    lora: Optional[dict[str, Any]] = None,
 ) -> None:
-    payload = {
+    payload: dict[str, Any] = {
         "content": content,
         "negative": negative,
         "note": note,
     }
+    normalized_lora = normalize_lora_payload(
+        lora,
+        require_hashes_when_text=True,
+        filename=path.name,
+    )
+    if normalized_lora["text"] or normalized_lora["hashes"]:
+        payload["lora"] = normalized_lora
     temporary = path.with_name(f".{path.stem}.pm4a-save-{uuid.uuid4().hex}.tmp")
     try:
         with temporary.open("w", encoding="utf-8", newline="\n") as handle:

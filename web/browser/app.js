@@ -13,7 +13,19 @@ import {
   setLocale,
   t,
   trySaveBrowserLocale,
-} from "./i18n.js?v=13";
+} from "./i18n.js?v=16";
+import {
+  detectLoraManager,
+  emptyLoraPayload,
+  entriesToLoraPayload,
+  loraPayloadEqual,
+  parseLoraEntries,
+  formatLoraStrength,
+  pickExactLoraFromManager,
+  pickLoraFromManagerItem,
+  searchLoraManager,
+  withLoraStrength,
+} from "./lora_library.js?v=2";
 
 setLocale(readBrowserLocale());
 applyDocumentTranslations();
@@ -169,6 +181,11 @@ const state = {
   editingContent: false,
   editingNegative: false,
   editingNote: false,
+  detailLoraEntries: [],
+  loraManagerAvailable: false,
+  loraPickerTimer: 0,
+  loraPickerRequestId: 0,
+  loraPickerPending: null,
   savingEntry: false,
   saveRequestId: 0,
   uploadingImage: false,
@@ -312,6 +329,36 @@ async function copyFolderWildcard(folder) {
   try {
     await writeClipboardText(wildcard);
     toast(t("已复制文件夹 Wildcard：{wildcard}", { wildcard }), "success");
+  } catch (error) {
+    toast(t("复制失败：{error}", { error: error.message || error }), "error");
+  }
+}
+
+function wildcardSyntaxForKey(key) {
+  const item = state.items.find((candidate) => candidate.key === key);
+  if (item?.wildcard_syntax) return item.wildcard_syntax;
+  const normalized = String(key || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  return normalized ? `__${normalized}__` : "";
+}
+
+async function copyPromptWildcards(items) {
+  const keys = (items || [])
+    .filter((item) => item?.type === "file" && item.key)
+    .map((item) => item.key);
+  const refs = keys.map((key) => wildcardSyntaxForKey(key)).filter(Boolean);
+  if (!refs.length) {
+    toast(t("没有可复制的 Wildcard"), "error");
+    return;
+  }
+  const wildcard = refs.length === 1 ? refs[0] : `{${refs.join("|")}}`;
+  try {
+    await writeClipboardText(wildcard);
+    toast(
+      refs.length === 1
+        ? t("已复制 Wildcard：{wildcard}", { wildcard })
+        : t("已复制 {count} 项为 Wildcard：{wildcard}", { count: refs.length, wildcard }),
+      "success",
+    );
   } catch (error) {
     toast(t("复制失败：{error}", { error: error.message || error }), "error");
   }
@@ -1187,6 +1234,9 @@ function showFolderContextMenu(event, folderPath = "") {
   menu.querySelectorAll('[data-context-action="create"], [data-context-action="wildcard"], [data-context-action="export"], [data-context-action="generate"]').forEach((item) => {
     item.hidden = false;
   });
+  menu.querySelectorAll("[data-context-prompt]").forEach((item) => {
+    item.hidden = true;
+  });
   menu.querySelectorAll("[data-context-operation]").forEach((item) => {
     item.hidden = !folderPath;
   });
@@ -1215,9 +1265,15 @@ function showPromptContextMenu(event, key) {
   menu.querySelectorAll('[data-context-action="create"], [data-context-action="rename"], [data-context-action="wildcard"], [data-context-action="export"], [data-context-action="generate"]').forEach((item) => {
     item.hidden = true;
   });
+  menu.querySelectorAll("[data-context-prompt]").forEach((item) => {
+    item.hidden = false;
+  });
   menu.querySelectorAll("[data-context-operation]").forEach((item) => {
     item.hidden = false;
   });
+  menu.querySelector('[data-context-action="prompt-wildcard"] span').textContent = count > 1
+    ? t("复制 {count} 项为 Wildcard", { count })
+    : t("复制为 Wildcard");
   menu.querySelector('[data-context-action="operation-copy"] span').textContent = count > 1 ? t("复制 {count} 项到…", { count }) : t("复制到…");
   menu.querySelector('[data-context-action="operation-move"] span').textContent = count > 1 ? t("移动 {count} 项到…", { count }) : t("移动到…");
   menu.querySelector('[data-context-action="operation-delete"] span').textContent = count > 1 ? t("删除所选提示词") : t("删除");
@@ -2081,7 +2137,17 @@ function hasDirtyDetailEdits() {
     && $("detail-negative-editor").value !== (state.selected.negative || "");
   const noteChanged = capabilities.note !== false
     && $("detail-note-editor").value !== (state.selected.note || "");
-  return titleChanged || contentChanged || negativeChanged || noteChanged || Boolean(state.imageDraft);
+  const loraChanged = capabilities.lora !== false
+    && !loraPayloadEqual(
+      entriesToLoraPayload(state.detailLoraEntries),
+      state.selected.lora || emptyLoraPayload(),
+    );
+  return titleChanged
+    || contentChanged
+    || negativeChanged
+    || noteChanged
+    || loraChanged
+    || Boolean(state.imageDraft);
 }
 
 function updateDetailEditControls() {
@@ -2090,10 +2156,12 @@ function updateDetailEditControls() {
   const contentEditable = available && capabilities.content_edit !== false;
   const negativeEnabled = available && capabilities.negative !== false;
   const noteEnabled = available && capabilities.note !== false;
+  const loraEnabled = available && capabilities.lora !== false;
   const titleButton = $("detail-edit-title");
   const contentButton = $("detail-edit-content");
   const negativeButton = $("detail-edit-negative");
   const noteButton = $("detail-edit-note");
+  const addLoraButton = $("detail-add-lora");
   const imageButton = $("detail-edit-image");
   const generateButton = $("detail-generate-image");
   const titleModified = Boolean(state.selected)
@@ -2109,6 +2177,13 @@ function updateDetailEditControls() {
   contentButton.disabled = !contentEditable;
   negativeButton.disabled = !negativeEnabled;
   noteButton.disabled = !noteEnabled;
+  addLoraButton.disabled = !loraEnabled || !state.loraManagerAvailable;
+  addLoraButton.title = !loraEnabled
+    ? t("添加 LoRA")
+    : state.loraManagerAvailable
+      ? t("添加 LoRA")
+      : t("需要安装 LoraManager 才能添加");
+  addLoraButton.setAttribute("aria-label", addLoraButton.title);
   $("detail-copy-content").disabled = !available;
   $("detail-copy-negative").disabled = !negativeEnabled;
   imageButton.disabled = !Boolean(state.selected)
@@ -2448,6 +2523,7 @@ async function saveDetailEdits() {
   const content = $("detail-content-editor").value;
   const negative = $("detail-negative-editor").value;
   const note = $("detail-note-editor").value;
+  const lora = entriesToLoraPayload(state.detailLoraEntries);
   const imageDraft = state.imageDraft;
   if (!name) {
     setSendStatus(t("标题不能为空"), "error");
@@ -2464,11 +2540,17 @@ async function saveDetailEdits() {
   const contentChanged = content !== (state.selected.content || "");
   const negativeChanged = negative !== (state.selected.negative || "");
   const noteChanged = note !== (state.selected.note || "");
-  const textChanged = titleChanged || contentChanged || negativeChanged || noteChanged;
+  const loraChanged = !loraPayloadEqual(lora, state.selected.lora || emptyLoraPayload());
+  const textChanged = titleChanged
+    || contentChanged
+    || negativeChanged
+    || noteChanged
+    || loraChanged;
   if (titleChanged) payload.name = name;
   if (contentChanged) payload.content = content;
   if (negativeChanged) payload.negative = negative;
   if (noteChanged) payload.note = note;
+  if (loraChanged) payload.lora = lora;
   const saveRequestId = ++state.saveRequestId;
 
   state.savingEntry = true;
@@ -3137,6 +3219,7 @@ function clearInspector() {
   state.currentIndex = -1;
   state.selectedKey = "";
   state.selected = null;
+  state.detailLoraEntries = [];
   state.saveRequestId += 1;
   clearImageDraft(false);
   resetImageUploadState();
@@ -3350,6 +3433,230 @@ function renderInspectorImage(entry, cacheBust = false) {
   }
 }
 
+function renderDetailLoraList() {
+  const list = $("detail-lora-list");
+  list.replaceChildren();
+  for (const [index, entry] of state.detailLoraEntries.entries()) {
+    const resolved = withLoraStrength(entry, entry.strength);
+    state.detailLoraEntries[index] = resolved;
+    const row = document.createElement("div");
+    row.className = "detail-lora-item";
+    const tag = document.createElement("div");
+    tag.className = "detail-lora-tag";
+    tag.textContent = resolved.tag;
+    const meta = document.createElement("div");
+    meta.className = "detail-lora-meta";
+    meta.textContent = [resolved.hashName || resolved.name, resolved.hash]
+      .filter(Boolean)
+      .join(" · ");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "detail-edit-button";
+    remove.title = t("删除 LoRA");
+    remove.setAttribute("aria-label", remove.title);
+    remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>';
+    remove.addEventListener("click", () => {
+      state.detailLoraEntries = state.detailLoraEntries.filter((_, i) => i !== index);
+      renderDetailLoraList();
+      updateDetailEditControls();
+    });
+    row.append(tag, meta, remove);
+    list.appendChild(row);
+  }
+}
+
+async function refreshLoraManagerAvailability() {
+  state.loraManagerAvailable = await detectLoraManager({ force: true });
+  updateDetailEditControls();
+  return state.loraManagerAvailable;
+}
+
+function clearLoraPickerSelection() {
+  state.loraPickerPending = null;
+  $("lora-picker-confirm").hidden = true;
+  $("lora-picker-selected-name").textContent = "";
+  $("lora-picker-strength").value = "1";
+  $("lora-picker-results")
+    .querySelectorAll(".lora-picker-result.active")
+    .forEach((node) => node.classList.remove("active"));
+}
+
+function closeLoraPicker() {
+  $("lora-picker-modal").hidden = true;
+  $("lora-picker-search").value = "";
+  $("lora-picker-paste").value = "";
+  $("lora-picker-results").replaceChildren();
+  $("lora-picker-status").textContent = "";
+  clearLoraPickerSelection();
+}
+
+async function addLorasFromPasteText() {
+  const paste = $("lora-picker-paste");
+  const status = $("lora-picker-status");
+  const parseButton = $("lora-picker-parse");
+  const tags = parseLoraEntries({ text: paste.value });
+  if (!tags.length) {
+    status.textContent = t("没有可解析的 LoRA 标签");
+    return;
+  }
+  parseButton.disabled = true;
+  status.textContent = t("正在解析添加…");
+  let added = 0;
+  let skipped = 0;
+  const missing = [];
+  try {
+    for (const tag of tags) {
+      if (state.detailLoraEntries.some((candidate) => candidate.name.toLowerCase() === tag.name.toLowerCase())) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        const entry = await pickExactLoraFromManager(tag.name, tag.strength);
+        if (!entry) {
+          missing.push(tag.name);
+          continue;
+        }
+        state.detailLoraEntries = [...state.detailLoraEntries, entry];
+        added += 1;
+      } catch (_) {
+        missing.push(tag.name);
+      }
+    }
+    if (added) {
+      renderDetailLoraList();
+      updateDetailEditControls();
+    }
+    const missingText = missing.join(", ");
+    let message = "";
+    if (added && (skipped || missing.length)) {
+      message = t("已解析添加 {added} 个；跳过已有 {skipped} 个；未匹配：{missing}", {
+        added,
+        skipped,
+        missing: missingText || "-",
+      });
+    } else if (added) {
+      message = t("已解析添加 {added} 个 LoRA", { added });
+    } else if (missing.length) {
+      message = t("未匹配任何 LoRA：{missing}", { missing: missingText });
+    } else {
+      message = t("已添加过同名 LoRA");
+    }
+    if (added) {
+      closeLoraPicker();
+      toast(message, "success");
+    } else {
+      status.textContent = message;
+    }
+  } finally {
+    parseButton.disabled = false;
+  }
+}
+
+async function selectLoraPickerItem(item, button) {
+  const exists = state.detailLoraEntries.some(
+    (candidate) => candidate.name.toLowerCase() === item.name.toLowerCase(),
+  );
+  if (exists) {
+    toast(t("已添加过同名 LoRA"), "error");
+    return;
+  }
+  $("lora-picker-results")
+    .querySelectorAll(".lora-picker-result.active")
+    .forEach((node) => node.classList.remove("active"));
+  button.classList.add("active");
+  $("lora-picker-status").textContent = t("正在读取默认强度…");
+  try {
+    const preview = await pickLoraFromManagerItem(item);
+    state.loraPickerPending = item;
+    $("lora-picker-selected-name").textContent = item.name;
+    $("lora-picker-strength").value = formatLoraStrength(
+      preview.defaultStrength || preview.strength,
+    );
+    $("lora-picker-confirm").hidden = false;
+    $("lora-picker-status").textContent = "";
+    $("lora-picker-strength").focus();
+    $("lora-picker-strength").select();
+  } catch (error) {
+    clearLoraPickerSelection();
+    $("lora-picker-status").textContent = t(
+      "读取强度失败：{error}",
+      { error: error.message || error },
+    );
+  }
+}
+
+async function confirmLoraPickerAdd() {
+  const item = state.loraPickerPending;
+  if (!item) return;
+  try {
+    const entry = await pickLoraFromManagerItem(item, $("lora-picker-strength").value);
+    const exists = state.detailLoraEntries.some(
+      (candidate) => candidate.name.toLowerCase() === entry.name.toLowerCase(),
+    );
+    if (exists) {
+      toast(t("已添加过同名 LoRA"), "error");
+      return;
+    }
+    state.detailLoraEntries = [...state.detailLoraEntries, entry];
+    renderDetailLoraList();
+    updateDetailEditControls();
+    closeLoraPicker();
+  } catch (error) {
+    toast(t("添加失败：{error}", { error: error.message || error }), "error");
+  }
+}
+
+async function renderLoraPickerResults(query) {
+  const requestId = ++state.loraPickerRequestId;
+  const results = $("lora-picker-results");
+  const status = $("lora-picker-status");
+  status.textContent = t("正在搜索…");
+  results.replaceChildren();
+  clearLoraPickerSelection();
+  try {
+    const items = await searchLoraManager(query);
+    if (requestId !== state.loraPickerRequestId) return;
+    if (!items.length) {
+      status.textContent = t("没有匹配的 LoRA");
+      return;
+    }
+    status.textContent = "";
+    for (const item of items) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "lora-picker-result";
+      button.setAttribute("role", "option");
+      const name = document.createElement("span");
+      name.className = "lora-picker-result-name";
+      name.textContent = item.name;
+      const meta = document.createElement("span");
+      meta.className = "lora-picker-result-meta";
+      meta.textContent = [item.fileName, item.hash].filter(Boolean).join(" · ");
+      button.append(name, meta);
+      button.addEventListener("click", () => {
+        void selectLoraPickerItem(item, button);
+      });
+      results.appendChild(button);
+    }
+  } catch (error) {
+    if (requestId !== state.loraPickerRequestId) return;
+    status.textContent = t("搜索失败：{error}", { error: error.message || error });
+  }
+}
+
+async function openLoraPicker() {
+  if (!state.selected || state.selected.capabilities?.lora === false) return;
+  const available = await refreshLoraManagerAvailability();
+  if (!available) {
+    toast(t("需要安装 LoraManager 才能添加"), "error");
+    return;
+  }
+  clearLoraPickerSelection();
+  $("lora-picker-modal").hidden = false;
+  $("lora-picker-search").focus();
+  await renderLoraPickerResults("");
+}
+
 function renderInspectorEntry(entry, cacheBust = false) {
   const isTxt = entry.format === "txt_wildcard";
   $("detail-title").textContent = entry.name || "";
@@ -3357,6 +3664,9 @@ function renderInspectorEntry(entry, cacheBust = false) {
   $("detail-content").textContent = entry.content || "";
   $("detail-negative").textContent = entry.negative || "";
   $("detail-note").textContent = entry.note || "";
+  state.detailLoraEntries = isTxt ? [] : parseLoraEntries(entry.lora || emptyLoraPayload());
+  renderDetailLoraList();
+  void refreshLoraManagerAvailability();
   const badge = $("detail-format-badge");
   badge.hidden = !isTxt;
   badge.textContent = isTxt
@@ -3376,6 +3686,7 @@ function renderInspectorEntry(entry, cacheBust = false) {
     })
     : "";
   $("detail-negative-panel").hidden = isTxt;
+  $("detail-lora-panel").hidden = isTxt;
   $("detail-note-panel").hidden = isTxt;
   $("detail-open-txt").hidden = !isTxt;
   $("detail-reveal-txt").hidden = !isTxt;
@@ -4602,6 +4913,7 @@ function setupEventHandlers() {
     if (action === "create") openFolderCreateModal(folderPath);
     else if (action === "rename") openFolderRenameModal(folderPath);
     else if (action === "wildcard") copyFolderWildcard(folderPath);
+    else if (action === "prompt-wildcard") copyPromptWildcards(contextItems);
     else if (action === "export") exportFolderPrompts(folderPath);
     else if (action === "generate") openGenerationBatchModal(folderPath);
     else if (action === "operation-copy") requestItemOperation("copy", contextItems);
@@ -4758,6 +5070,39 @@ function setupEventHandlers() {
   $("detail-edit-content").addEventListener("click", beginContentEdit);
   $("detail-edit-negative").addEventListener("click", beginNegativeEdit);
   $("detail-edit-note").addEventListener("click", beginNoteEdit);
+  $("detail-add-lora").addEventListener("click", () => {
+    void openLoraPicker();
+  });
+  $("lora-picker-close").addEventListener("click", closeLoraPicker);
+  $("lora-picker-cancel").addEventListener("click", closeLoraPicker);
+  $("lora-picker-add").addEventListener("click", () => {
+    void confirmLoraPickerAdd();
+  });
+  $("lora-picker-strength").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void confirmLoraPickerAdd();
+    }
+  });
+  $("lora-picker-modal").addEventListener("mousedown", (event) => {
+    if (event.target === $("lora-picker-modal")) closeLoraPicker();
+  });
+  $("lora-picker-search").addEventListener("input", () => {
+    clearTimeout(state.loraPickerTimer);
+    const query = $("lora-picker-search").value;
+    state.loraPickerTimer = setTimeout(() => {
+      void renderLoraPickerResults(query);
+    }, 200);
+  });
+  $("lora-picker-parse").addEventListener("click", () => {
+    void addLorasFromPasteText();
+  });
+  $("lora-picker-paste").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      void addLorasFromPasteText();
+    }
+  });
   $("detail-copy-content").addEventListener("click", copyDetailContent);
   $("detail-copy-negative").addEventListener("click", copyDetailNegative);
   $("detail-reveal-txt").addEventListener("click", () => openSelectedTxt("reveal"));

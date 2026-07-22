@@ -35,8 +35,13 @@ class MetaApply4A:
 
     @classmethod
     def INPUT_TYPES(cls):
+        yes_no = {"default": True, "label_on": "yes", "label_off": "no"}
         return {
             "required": {
+                # Display names are the input keys so labels show even if i18n cache is stale.
+                "自动应用模型/LoRA": ("BOOLEAN", {**yes_no}),
+                "自动应用推理参数": ("BOOLEAN", {**yes_no}),
+                "自动应用提示词": ("BOOLEAN", {**yes_no}),
                 "image": (_input_image_files(), {"image_upload": True}),
             }
         }
@@ -47,14 +52,18 @@ class MetaApply4A:
     OUTPUT_NODE = True
     CATEGORY = "4A-Prompt-Manager"
     DESCRIPTION = (
-        "Drop or pick an image to automatically apply all detected metadata: "
-        "scheduler positive/negative tracks, models, input parameters, "
-        "double-sample parameters, and LoRA text."
+        "Drop or pick an image to automatically apply detected metadata. "
+        "Use the top toggles to enable Model/LoRA, inference parameters, "
+        "and prompt application independently."
     )
 
     @classmethod
-    def VALIDATE_INPUTS(cls, image):
+    def VALIDATE_INPUTS(cls, **_kwargs):
         return True
 
-    def show(self, image=None):
+    def show(
+        self,
+        image=None,
+        **kwargs,
+    ):
         return ()
