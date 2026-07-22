@@ -39,7 +39,8 @@ class MetaApply4A:
         return {
             "required": {
                 # Display names are the input keys so labels show even if i18n cache is stale.
-                "自动应用模型/LoRA": ("BOOLEAN", {**yes_no}),
+                "自动应用模型": ("BOOLEAN", {**yes_no}),
+                "自动应用 LoRA": ("BOOLEAN", {**yes_no}),
                 "自动应用推理参数": ("BOOLEAN", {**yes_no}),
                 "自动应用提示词": ("BOOLEAN", {**yes_no}),
                 "image": (_input_image_files(), {"image_upload": True}),
@@ -53,7 +54,7 @@ class MetaApply4A:
     CATEGORY = "4A-Prompt-Manager"
     DESCRIPTION = (
         "Drop or pick an image to automatically apply detected metadata. "
-        "Use the top toggles to enable Model/LoRA, inference parameters, "
+        "Use the top toggles to enable model, LoRA, inference parameters, "
         "and prompt application independently."
     )
 

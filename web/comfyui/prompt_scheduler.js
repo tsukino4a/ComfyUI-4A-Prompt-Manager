@@ -124,6 +124,30 @@ function seedWidgetValue(node) {
   return Number.isFinite(value) ? Math.trunc(value) : 0;
 }
 
+/** Prefer the live seed from a linked upstream node; fall back to the local widget. */
+function resolveSchedulerSeed(node) {
+  const graph = node?.graph || app.graph;
+  const seedInput = node?.inputs?.find((input) => input?.name === "seed");
+  const linkId = seedInput?.link;
+  if (linkId !== null && linkId !== undefined && graph) {
+    const link = graph.links?.[linkId] || graph._links?.[linkId];
+    const originId = link?.origin_id;
+    const origin = originId == null
+      ? null
+      : graph.getNodeById?.(originId) || graph.getNodeById?.(Number(originId));
+    if (origin) {
+      const outputName = origin.outputs?.[link.origin_slot]?.name;
+      const widget = origin.widgets?.find((candidate) => candidate?.name === "seed")
+        || (outputName
+          ? origin.widgets?.find((candidate) => candidate?.name === outputName)
+          : null);
+      const value = Number(widget?.value);
+      if (Number.isFinite(value)) return Math.trunc(value);
+    }
+  }
+  return seedWidgetValue(node);
+}
+
 function findSchedulerNodes() {
   const results = [];
   const visit = (graph) => {
@@ -1014,7 +1038,7 @@ app.registerExtension({
           const data = await fetchJson("/pm4a/api/scheduler/prepare", {
             config,
             task_count: config.task_count,
-            seed: seedWidgetValue(node),
+            seed: resolveSchedulerSeed(node),
           });
           const loraPlans = Array.isArray(data.lora_plans) ? data.lora_plans : [];
           if (config.lora_append) {
@@ -1063,6 +1087,17 @@ app.registerExtension({
       if (!app.__pm4aSchedulerLoraQueueHooked) {
         app.__pm4aSchedulerLoraQueueHooked = true;
         const originalQueuePrompt = app.queuePrompt.bind(app);
+        // ComfyUI may re-enter queuePrompt while one call is still draining its
+        // internal queue; only the outermost hook may mutate/restore widgets.
+        let queueHookDepth = 0;
+        const writeRunId = (schedulerNode, widget, value) => {
+          if (!widget) return;
+          widget.value = value;
+          if (Array.isArray(schedulerNode?.widgets_values) && Array.isArray(schedulerNode.widgets)) {
+            const index = schedulerNode.widgets.indexOf(widget);
+            if (index >= 0) schedulerNode.widgets_values[index] = value;
+          }
+        };
         app.queuePrompt = async function pm4aSchedulerQueuePrompt(...args) {
           const active = findSchedulerNodes().filter((candidate) => {
             const widget = candidate.widgets?.find((entry) => entry?.name === "config_json");
@@ -1071,39 +1106,80 @@ app.registerExtension({
           });
           if (!active.length) return originalQueuePrompt(...args);
 
+          queueHookDepth += 1;
+          const isOutermost = queueHookDepth === 1;
           const restores = [];
           try {
-            for (const schedulerNode of active) {
-              try {
-                const widget = schedulerNode.widgets?.find((entry) => entry?.name === "config_json");
-                const conf = normalizeConfig(widget?.value);
-                const indexWidgetLocal = schedulerNode.widgets?.find(
-                  (entry) => entry?.name === "execution_index",
-                );
-                const executionIndex = Number.isFinite(Number(indexWidgetLocal?.value))
-                  ? Math.trunc(Number(indexWidgetLocal.value))
-                  : conf.start_index;
-                const data = await fetchJson("/pm4a/api/scheduler/lora-plan", {
-                  config: conf,
-                  seed: seedWidgetValue(schedulerNode),
-                  execution_index: executionIndex,
-                  task_count: 1,
-                });
-                const appendText = data.lora_plans?.[0]?.append_text || "";
-                const loader = findLoraLoaderTarget(schedulerNode);
-                if (!loader || !appendText) continue;
-                const baseText = readLoraLoaderText(loader);
-                const next = mergeLoraAppendText(baseText, appendText);
-                if (next === baseText) continue;
-                writeLoraLoaderText(loader, next);
-                restores.push({ loader, baseText });
-              } catch (error) {
-                console.warn("[4A Scheduler] LoRA append skipped for single queue", error);
+            if (isOutermost) {
+              // Official Run: queuePrompt(number, batchCount) re-serializes each
+              // count after beforeQueued (seed rerolls). Re-assert run_id + LoRA
+              // in beforeQueued so prompt expansion and LoRA stay on the same card.
+              const batchCount = Math.max(1, Math.trunc(Number(args[1]) || 1));
+              for (const schedulerNode of active) {
+                try {
+                  const widget = schedulerNode.widgets?.find((entry) => entry?.name === "config_json");
+                  const conf = normalizeConfig(widget?.value);
+                  const indexWidgetLocal = schedulerNode.widgets?.find(
+                    (entry) => entry?.name === "execution_index",
+                  );
+                  const runWidgetLocal = schedulerNode.widgets?.find(
+                    (entry) => entry?.name === "run_id",
+                  );
+                  const executionIndex = Number.isFinite(Number(indexWidgetLocal?.value))
+                    ? Math.trunc(Number(indexWidgetLocal.value))
+                    : conf.start_index;
+                  const data = await fetchJson("/pm4a/api/scheduler/prepare", {
+                    config: { ...conf, start_index: executionIndex },
+                    task_count: batchCount,
+                    seed: resolveSchedulerSeed(schedulerNode),
+                  });
+                  const runId = data.run_id || "";
+                  const appendText = data.lora_plans?.[0]?.append_text || "";
+                  const loader = findLoraLoaderTarget(schedulerNode);
+                  const baseLoraText = loader ? readLoraLoaderText(loader) : "";
+                  const nextLoraText = loader && appendText
+                    ? mergeLoraAppendText(baseLoraText, appendText)
+                    : baseLoraText;
+                  const previousRunId = runWidgetLocal?.value;
+                  const previousBeforeQueued = runWidgetLocal?.beforeQueued;
+                  const applyForSerialize = () => {
+                    if (runWidgetLocal) writeRunId(schedulerNode, runWidgetLocal, runId);
+                    if (loader && nextLoraText !== baseLoraText) {
+                      writeLoraLoaderText(loader, nextLoraText);
+                    }
+                  };
+                  applyForSerialize();
+                  if (runWidgetLocal) {
+                    runWidgetLocal.beforeQueued = (...beforeArgs) => {
+                      applyForSerialize();
+                      return previousBeforeQueued?.apply(runWidgetLocal, beforeArgs);
+                    };
+                  }
+                  restores.push({
+                    schedulerNode,
+                    runWidgetLocal,
+                    previousRunId,
+                    previousBeforeQueued,
+                    loader,
+                    baseLoraText,
+                  });
+                } catch (error) {
+                  console.warn("[4A Scheduler] LoRA append skipped for single queue", error);
+                }
               }
             }
             return await originalQueuePrompt(...args);
           } finally {
-            for (const entry of restores) writeLoraLoaderText(entry.loader, entry.baseText);
+            if (isOutermost) {
+              for (const entry of restores) {
+                if (entry.runWidgetLocal) {
+                  entry.runWidgetLocal.beforeQueued = entry.previousBeforeQueued;
+                  writeRunId(entry.schedulerNode, entry.runWidgetLocal, entry.previousRunId);
+                }
+                if (entry.loader) writeLoraLoaderText(entry.loader, entry.baseLoraText);
+              }
+            }
+            queueHookDepth -= 1;
           }
         };
       }

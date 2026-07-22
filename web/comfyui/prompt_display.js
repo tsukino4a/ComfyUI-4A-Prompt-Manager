@@ -49,7 +49,7 @@ import {
   schedulerNodes,
   setWidgetValue,
   withGraphChangeTransaction,
-} from "./meta_apply_core.js?v=4";
+} from "./meta_apply_core.js?v=5";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const DISPLAY_NODE_CLASS = "Prompt Display (4A Prompt Manager)";

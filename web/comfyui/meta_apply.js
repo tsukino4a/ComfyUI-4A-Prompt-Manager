@@ -12,7 +12,7 @@ import { configureComfyI18n, t } from "./i18n.js?v=1";
 import {
   applyAllFromPayload,
   readImagePromptSnapshot,
-} from "./meta_apply_core.js?v=3";
+} from "./meta_apply_core.js?v=5";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const NODE_CLASS = "Meta Apply (4A Prompt Manager)";
@@ -20,18 +20,26 @@ const NODE_CLASS = "Meta Apply (4A Prompt Manager)";
 const TOP_PAD_PX = 8;
 
 const APPLY_FLAG_WIDGETS = {
+  applyModel: ["自动应用模型", "apply_model"],
+  applyLora: ["自动应用 LoRA", "apply_lora"],
+  // Legacy combined toggle kept for older workflows until the node is recreated.
   applyModelLora: ["自动应用模型/LoRA", "apply_model_lora"],
   applyParameters: ["自动应用推理参数", "apply_parameters"],
   applyPrompt: ["自动应用提示词", "apply_prompt"],
 };
 
 function readApplyFlags(node) {
-  const valueOf = (names) => {
+  const valueOf = (names, fallback = true) => {
     const widget = node.widgets?.find((item) => names.includes(item.name));
-    return widget ? widget.value !== false : true;
+    if (!widget) return fallback;
+    return widget.value !== false;
   };
+  const hasSplitModel = node.widgets?.some((item) => APPLY_FLAG_WIDGETS.applyModel.includes(item.name));
+  const hasSplitLora = node.widgets?.some((item) => APPLY_FLAG_WIDGETS.applyLora.includes(item.name));
+  const legacyModelLora = valueOf(APPLY_FLAG_WIDGETS.applyModelLora, true);
   return {
-    applyModelLora: valueOf(APPLY_FLAG_WIDGETS.applyModelLora),
+    applyModel: hasSplitModel ? valueOf(APPLY_FLAG_WIDGETS.applyModel) : legacyModelLora,
+    applyLora: hasSplitLora ? valueOf(APPLY_FLAG_WIDGETS.applyLora) : legacyModelLora,
     applyParameters: valueOf(APPLY_FLAG_WIDGETS.applyParameters),
     applyPrompt: valueOf(APPLY_FLAG_WIDGETS.applyPrompt),
   };

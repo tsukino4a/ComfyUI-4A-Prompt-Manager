@@ -586,11 +586,23 @@ export async function applyLoraFromPayload(hostNode, payload) {
 
 /**
  * Apply Meta Loader targets available in the payload.
- * @param {{ applyPrompt?: boolean, applyModelLora?: boolean, applyParameters?: boolean }} [options]
+ * @param {{
+ *   applyPrompt?: boolean,
+ *   applyModel?: boolean,
+ *   applyLora?: boolean,
+ *   applyModelLora?: boolean,
+ *   applyParameters?: boolean,
+ * }} [options]
  */
 export async function applyAllFromPayload(hostNode, payload, options = {}) {
   const applyPrompt = options.applyPrompt !== false;
-  const applyModelLora = options.applyModelLora !== false;
+  // Prefer split flags; fall back to legacy applyModelLora when split flags omitted.
+  const applyModelFlag = options.applyModel !== undefined
+    ? options.applyModel !== false
+    : options.applyModelLora !== false;
+  const applyLoraFlag = options.applyLora !== undefined
+    ? options.applyLora !== false
+    : options.applyModelLora !== false;
   const applyParameters = options.applyParameters !== false;
   const applied = [];
   const errors = [];
@@ -610,14 +622,16 @@ export async function applyAllFromPayload(hostNode, payload, options = {}) {
     }
   }
 
-  if (applyModelLora) {
+  if (applyModelFlag) {
     const modelResult = await applyModelsFromPayload(hostNode, payload);
     const modelCount = modelResult.applied.length;
     if (modelCount) {
       applied.push(modelCount === 1 ? t("模型 1 个") : t("模型 {count} 个", { count: modelCount }));
     }
     errors.push(...modelResult.errors);
+  }
 
+  if (applyLoraFlag) {
     try {
       const message = await applyLoraFromPayload(hostNode, payload);
       if (message) applied.push("LoRA");
