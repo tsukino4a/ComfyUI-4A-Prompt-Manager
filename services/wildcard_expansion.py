@@ -169,11 +169,14 @@ def expand_prompt(
 
 
 def cleanup_prompt_commas(text: str) -> str:
-    """Drop empty comma slots (e.g. 'a,,b' / 'a, , b'); keep author newlines."""
+    """Drop empty comma slots (e.g. 'a,,b' / 'a, , b'); keep author newlines.
+
+    Leading empty commas are removed; a single trailing comma is left alone.
+    """
     if not isinstance(text, str) or not text.strip():
         return ""
     cleaned = re.sub(r",(?:\s*,)+", ",", text)
-    cleaned = re.sub(r"^(?:\s*,\s*)+|(?:\s*,\s*)+$", "", cleaned)
+    cleaned = re.sub(r"^(?:\s*,\s*)+", "", cleaned)
     return cleaned
 
 
