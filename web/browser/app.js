@@ -58,6 +58,8 @@ const STORAGE_KEYS = {
   viewMode: "pm4a_browser_view_mode",
   sortMode: "pm4a_browser_sort_mode",
   sendMode: "pm4a_browser_send_mode",
+  expanded: "pm4a_browser_expanded",
+  prefix: "pm4a_browser_prefix",
 };
 
 const SLOT_LABELS = {
@@ -145,8 +147,28 @@ function storeValue(key, value) {
   }
 }
 
+function readStoredExpanded() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.expanded);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((path) => typeof path === "string" && path);
+  } catch (_) {
+    return [];
+  }
+}
+
+function persistExpanded() {
+  storeValue(STORAGE_KEYS.expanded, JSON.stringify([...state.expanded]));
+}
+
+function persistPrefix() {
+  storeValue(STORAGE_KEYS.prefix, state.prefix || "");
+}
+
 const state = {
-  prefix: "",
+  prefix: readStoredString(STORAGE_KEYS.prefix, ""),
   search: "",
   recursive: readStoredBoolean(STORAGE_KEYS.recursive, true),
   sidebarOpen: readStoredBoolean(STORAGE_KEYS.sidebarOpen, true),
@@ -167,7 +189,7 @@ const state = {
   items: [],
   tree: [],
   folderMap: new Map(),
-  expanded: new Set(),
+  expanded: new Set(readStoredExpanded()),
   fileCount: 0,
   requestGeneration: 0,
   listController: null,
@@ -1546,6 +1568,7 @@ async function runItemOperation(action, items, destination = "") {
       (item) => item.type === "folder" && (state.prefix === item.key || state.prefix.startsWith(`${item.key}/`)),
     )) {
       state.prefix = "";
+      persistPrefix();
     }
     state.pendingOperation = "";
     state.pendingOperationItems = [];
@@ -1692,9 +1715,11 @@ async function saveNewFolder(event) {
       const selectedKey = state.selectedKey;
       const nextSelectedKey = remapFolderPrefix(selectedKey, oldPath, newPath);
       state.prefix = remapFolderPrefix(state.prefix, oldPath, newPath);
+      persistPrefix();
       state.expanded = new Set(
         [...state.expanded].map((path) => remapFolderPrefix(path, oldPath, newPath)),
       );
+      persistExpanded();
       if (selectedKey && nextSelectedKey !== selectedKey) {
         state.selectedKey = nextSelectedKey;
         if (state.selected) {
@@ -2857,10 +2882,15 @@ function renderBreadcrumbs() {
 
 function expandFolderPath(path) {
   let currentPath = "";
+  let changed = false;
   for (const part of String(path || "").split("/").filter(Boolean)) {
     currentPath = currentPath ? `${currentPath}/${part}` : part;
-    state.expanded.add(currentPath);
+    if (!state.expanded.has(currentPath)) {
+      state.expanded.add(currentPath);
+      changed = true;
+    }
   }
+  if (changed) persistExpanded();
 }
 
 function navigateToDetailFolder(path) {
@@ -2923,6 +2953,7 @@ async function loadTree() {
 
     if (state.prefix && !state.folderMap.has(state.prefix)) {
       state.prefix = "";
+      persistPrefix();
     }
 
     $("all-count").textContent = numberFormatter.format(state.fileCount);
@@ -3328,8 +3359,12 @@ function resetAndLoadList(options = {}) {
 
 function selectFolder(path, options = {}) {
   state.prefix = path || "";
+  persistPrefix();
   const node = state.folderMap.get(state.prefix);
-  if (node?.children?.length) state.expanded.add(state.prefix);
+  if (node?.children?.length && !state.expanded.has(state.prefix)) {
+    state.expanded.add(state.prefix);
+    persistExpanded();
+  }
   return resetAndLoadList({ ...options, preserveInspector: options.preserveInspector ?? true });
 }
 
@@ -4879,6 +4914,7 @@ function setupEventHandlers() {
 
   $("btn-collapse").addEventListener("click", () => {
     state.expanded.clear();
+    persistExpanded();
     renderTree();
   });
 
@@ -4890,6 +4926,7 @@ function setupEventHandlers() {
       const path = toggle.dataset.togglePath;
       if (state.expanded.has(path)) state.expanded.delete(path);
       else state.expanded.add(path);
+      persistExpanded();
       renderTree();
       return;
     }
@@ -5049,6 +5086,7 @@ function setupEventHandlers() {
       state.entryCache.clear();
       clearInspector();
       state.expanded.clear();
+      persistExpanded();
       await loadTree();
       await resetAndLoadList();
       toast(t("提示词库已刷新"), "success");
