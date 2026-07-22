@@ -18,9 +18,9 @@ A full, easy-to-use library UI. Prompts live as a normal folder tree (JSON cards
 
 ### JSON card LoRAs + wildcard auto-embed LoRA
 
-JSON cards can store LoRAs (pick via [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager); paste `<lora:name:strength>` tags to batch-add exact matches). When a Scheduler track resolves cards through wildcard syntax (e.g. `__path__`), turn on **Auto-embed Wildcard LoRAs** to append those LoRAs to the Lora Loader before queueing (skip names already present). Only cards reached via wildcards are embedded — plain fixed text is not.
+JSON cards can store LoRAs (pick via [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager); paste `<lora:name:strength>` tags to batch-add exact matches). When a Scheduler track resolves cards through wildcard syntax (e.g. `__path__`), turn on **Auto-embed Wildcard LoRAs** to append those LoRAs to the Lora Loader before queueing (skip names already present). Only cards reached via wildcards are embedded — plain fixed text is not. With auto-embed on, **Group same LoRAs** queues batch jobs that share the same LoRA stack together so ComfyUI spends less time reloading models when the stack changes.
 
-<!-- TODO: replace with the final screenshot -->
+<!-- Screenshot below predates the Group same LoRAs toggle; UI text is the same otherwise. -->
 ![JSON card LoRAs / wildcard auto-embed LoRA](docs/images/json_card_lora.png)
 
 ### Multi-track Prompt Scheduler

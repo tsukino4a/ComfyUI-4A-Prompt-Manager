@@ -18,9 +18,9 @@
 
 ### JSON 卡片 LoRA + Wildcard 自动嵌入 LoRA
 
-JSON 卡片可绑定 LoRA（经 [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager) 搜索选择，支持粘贴 `<lora:名称:强度>` 批量解析添加）。当 Scheduler 栏目用 Wildcard 语法（如 `__路径__`）引用带 LoRA 的卡片时，可开启「自动嵌入 Wildcard LoRA」：入队前把对应 LoRA 自动追加到 Lora Loader（已有同名跳过）。仅 Wildcard 解析到的卡片会触发，手写固定文本不会。
+JSON 卡片可绑定 LoRA（经 [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager) 搜索选择，支持粘贴 `<lora:名称:强度>` 批量解析添加）。当 Scheduler 栏目用 Wildcard 语法（如 `__路径__`）引用带 LoRA 的卡片时，可开启「自动嵌入 Wildcard LoRA」：入队前把对应 LoRA 自动追加到 Lora Loader（已有同名跳过）。仅 Wildcard 解析到的卡片会触发，手写固定文本不会。开启自动嵌入后，可再开「相同 LoRA 连跑」：批量运行时把同一套 LoRA 的任务排在一起，减少换 LoRA 导致的模型重载时间。
 
-<!-- TODO: 替换为正式截图 -->
+<!-- 下图截图尚未更新「相同 LoRA 连跑」按钮，其它说明一致。 -->
 ![JSON 卡片 LoRA / Wildcard 自动嵌入 LoRA](docs/images/json_card_lora.png)
 
 ### 多层 Prompt Scheduler
