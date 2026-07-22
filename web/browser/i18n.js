@@ -127,6 +127,8 @@ export const EN_MESSAGES = Object.freeze({
   "搜索": "Search",
   "自动嵌入 Wildcard LoRA": "Auto-embed Wildcard LoRAs",
   "仅当栏目通过 Wildcard 语法（如 __路径__）引用带 LoRA 的词条时，入队前自动追加到 Lora Loader（已有同名跳过）": "Only LoRAs from cards referenced via wildcard syntax (e.g. __path__) are appended to the LoRA Loader before queueing (skip names already present)",
+  "相同 LoRA 连跑": "Group same LoRAs",
+  "批量运行时把相同 LoRA 的任务排在一起，减少换 LoRA 导致的模型重载": "During batch runs, queue jobs that share the same LoRA together to avoid reloading when the LoRA stack changes",
   "选择 LoRA Loader": "Select LoRA Loader",
   "请先选择 LoRA Loader": "Select a LoRA Loader first",
   "工作流中没有 LoraManager LoRA Loader": "No LoraManager LoRA Loader in the workflow",

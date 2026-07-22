@@ -17,7 +17,7 @@ import {
   normalizeLocale,
   setLocale,
   t,
-} from "/pm4a/static/i18n.js?v=17";
+} from "/pm4a/static/i18n.js?v=18";
 
 export function getComfyLocale(app) {
   let current;

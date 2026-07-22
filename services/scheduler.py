@@ -101,6 +101,7 @@ def normalize_config(value: Any) -> dict[str, Any]:
         "negative": negative,
         "tracks": tracks,
         "lora_append": bool(value.get("lora_append", False)),
+        "lora_group_same": bool(value.get("lora_group_same", False)),
     }
 
 

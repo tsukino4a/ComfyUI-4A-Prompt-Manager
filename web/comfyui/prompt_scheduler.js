@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { configureComfyI18n, pm4aFetch, t } from "./i18n.js?v=2";
+import { configureComfyI18n, pm4aFetch, t } from "./i18n.js?v=3";
 import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js";
 import { attachAutocompletePlus } from "./autocomplete_plus_attach.js?v=1";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
@@ -66,6 +66,7 @@ function defaultConfig() {
     negative: "",
     negative_collapsed: false,
     lora_append: false,
+    lora_group_same: false,
     tracks: [
       defaultTrack("quality", "质量"),
       defaultTrack("character", "角色"),
@@ -114,6 +115,7 @@ function normalizeConfig(value) {
       ? Math.max(58, Math.min(1200, Math.round(Number(raw.negative_ui_height))))
       : null,
     lora_append: Boolean(raw.lora_append),
+    lora_group_same: Boolean(raw.lora_group_same),
     tracks: normalizedTracks,
   };
 }
@@ -199,6 +201,8 @@ function injectStyles() {
     .pm4a-scheduler-lora-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding-top:2px; }
     .pm4a-scheduler-lora-toggle { display:inline-flex; align-items:center; gap:6px; color:#aeb4bb; cursor:pointer; user-select:none; }
     .pm4a-scheduler-lora-toggle input { width:auto; margin:0; }
+    .pm4a-scheduler-lora-toggle.disabled { opacity:.45; cursor:not-allowed; text-decoration:line-through; }
+    .pm4a-scheduler-lora-toggle.disabled input { cursor:not-allowed; }
     .pm4a-scheduler-lora-target { flex:1; min-width:140px; max-width:260px; height:28px; }
     .pm4a-track-list { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; gap:7px; padding-right:3px; scrollbar-width:thin; }
     .pm4a-track { flex:0 0 auto; border:1px solid #486b48; border-radius:6px; background:#353; overflow:hidden; }
@@ -430,9 +434,24 @@ app.registerExtension({
       loraToggleText.textContent = t("自动嵌入 Wildcard LoRA");
       loraToggle.title = t("仅当栏目通过 Wildcard 语法（如 __路径__）引用带 LoRA 的词条时，入队前自动追加到 Lora Loader（已有同名跳过）");
       loraToggle.append(loraCheckbox, loraToggleText);
+      const loraGroupToggle = document.createElement("label");
+      loraGroupToggle.className = "pm4a-scheduler-lora-toggle";
+      const loraGroupCheckbox = document.createElement("input");
+      loraGroupCheckbox.type = "checkbox";
+      loraGroupCheckbox.checked = Boolean(config.lora_group_same);
+      const loraGroupToggleText = document.createElement("span");
+      loraGroupToggleText.textContent = t("相同 LoRA 连跑");
+      loraGroupToggle.title = t("批量运行时把相同 LoRA 的任务排在一起，减少换 LoRA 导致的模型重载");
+      loraGroupToggle.append(loraGroupCheckbox, loraGroupToggleText);
       const loraTarget = document.createElement("select");
       loraTarget.className = "pm4a-scheduler-lora-target";
       loraTarget.title = t("选择 LoRA Loader");
+      const syncLoraGroupToggle = () => {
+        const enabled = Boolean(config.lora_append);
+        loraGroupCheckbox.disabled = !enabled;
+        loraGroupToggle.classList.toggle("disabled", !enabled);
+        loraGroupCheckbox.checked = Boolean(config.lora_group_same);
+      };
       const refreshLoraTargets = () => {
         const targets = loraLoaderNodes(node.graph || app.graph);
         const previous = String(node.properties?.[TARGET_LORA_PROPERTY] || "");
@@ -454,10 +473,19 @@ app.registerExtension({
         else if (targets.length === 1) loraTarget.value = String(targets[0].id);
         else loraTarget.value = "";
         loraTarget.hidden = !config.lora_append || targets.length < 2;
+        syncLoraGroupToggle();
       };
       loraCheckbox.addEventListener("change", () => {
         config.lora_append = loraCheckbox.checked;
         refreshLoraTargets();
+        persist();
+      });
+      loraGroupCheckbox.addEventListener("change", () => {
+        if (!config.lora_append) {
+          loraGroupCheckbox.checked = Boolean(config.lora_group_same);
+          return;
+        }
+        config.lora_group_same = loraGroupCheckbox.checked;
         persist();
       });
       loraTarget.addEventListener("change", () => {
@@ -465,7 +493,7 @@ app.registerExtension({
         node.properties[TARGET_LORA_PROPERTY] = loraTarget.value;
       });
       refreshLoraTargets();
-      loraRow.append(loraToggle, loraTarget);
+      loraRow.append(loraToggle, loraGroupToggle, loraTarget);
 
       const trackList = document.createElement("div");
       trackList.className = "pm4a-track-list";
@@ -676,6 +704,7 @@ app.registerExtension({
           ? `${config.negative_ui_height}px`
           : "";
         loraCheckbox.checked = Boolean(config.lora_append);
+        loraGroupCheckbox.checked = Boolean(config.lora_group_same);
         refreshLoraTargets();
         if (!restoring) persist();
         renderNegative();
@@ -1060,15 +1089,30 @@ app.registerExtension({
             currentIndex: config.start_index,
             skipQueueHook: true,
           };
-          for (let index = 0; index < config.task_count; index++) {
-            batchState.currentIndex = config.start_index + index;
+          const indices = Array.from(
+            { length: config.task_count },
+            (_, offset) => config.start_index + offset,
+          );
+          const planText = (executionIndex) => {
+            const plan = loraPlans.find(
+              (entry) => Number(entry?.execution_index) === executionIndex,
+            );
+            return typeof plan?.append_text === "string" ? plan.append_text : "";
+          };
+          const queueOrder = (config.lora_append && config.lora_group_same)
+            ? [...indices].sort((left, right) => {
+              const leftText = planText(left);
+              const rightText = planText(right);
+              if (leftText !== rightText) return leftText < rightText ? -1 : 1;
+              return left - right;
+            })
+            : indices;
+          for (const executionIndex of queueOrder) {
+            batchState.currentIndex = executionIndex;
             indexWidget.value = batchState.currentIndex;
             runWidget.value = batchState.runId;
             if (loader) {
-              const plan = loraPlans.find(
-                (entry) => Number(entry?.execution_index) === batchState.currentIndex,
-              ) || loraPlans[index];
-              applyLoraAppendText(loader, baseLoraText, plan?.append_text || "");
+              applyLoraAppendText(loader, baseLoraText, planText(executionIndex));
             }
             await app.queuePrompt(0);
           }
