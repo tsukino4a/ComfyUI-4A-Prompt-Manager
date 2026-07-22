@@ -2,6 +2,8 @@
 
 [中文说明](README.zh-CN.md)
 
+Chinese video guide (Bilibili): https://www.bilibili.com/video/BV1DWKv6NE6t
+
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards, assemble multi-track prompts, apply image metadata, and save generations with portable parameters.
 
 ![Hero overview](docs/images/hero.png)

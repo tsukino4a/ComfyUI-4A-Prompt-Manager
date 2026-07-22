@@ -2,6 +2,8 @@
 
 [English](README.md)
 
+中文视频介绍（Bilibili）：https://www.bilibili.com/video/BV1DWKv6NE6t
+
 面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard、多轨拼装提示词、从图片元数据回填参数，并保存带便携参数的生成结果。
 
 ![总览](docs/images/hero.png)
