@@ -4,7 +4,9 @@
 
 Chinese video guide (Bilibili): https://www.bilibili.com/video/BV1DWKv6NE6t
 
-Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards, assemble multi-track prompts, apply image metadata, and save generations with portable parameters.
+Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
+
+**Current release: 1.2.0** — card generation settings, Bypass Switch for second pass, Wildcard auto-apply for LoRAs/models/params, and batch grouping for the same LoRA stack.
 
 ![Hero overview](docs/images/hero.png)
 
@@ -12,16 +14,15 @@ Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards, a
 
 ### Prompt Manager frontend
 
-A full, easy-to-use library UI. Prompts live as a normal folder tree (JSON cards + TXT wildcards), so you can back up or share by copying folders; import/export freely; generate preview images for cards (uses a built-in API workflow, or replace it with your own `api.json`).
+A full, easy-to-use library UI. Prompts live as a normal folder tree (JSON cards + TXT wildcards), so you can back up or share by copying folders; import/export freely; generate preview images for cards (uses a built-in API workflow, or replace it with your own `api.json`). The last folder and sidebar expansion are remembered across reloads. After a library refresh you can align card model names to local files by hash.
 
 ![Browser](docs/images/browser.png)
 
 ### JSON card LoRAs / generation settings + wildcard auto-apply
 
-JSON cards can sparsely store LoRAs, models, sampler settings (including seed/size), and double-sample settings. Empty fields are omitted from JSON; presence of a double-sample block means second pass ON (no separate enable flag). When Scheduler tracks resolve those cards via wildcard syntax, enable **Auto-embed Wildcard LoRAs** and/or **Auto-apply models / inference parameters** to write matching nodes before queueing, then restore the canvas baseline (seed is not restored). Conflict rules: LoRAs stack (skip same name); everything else is first-wins per field. Bypass Switch follows whether the card has double-sample fields—wire the second-pass subgraph/parameters into it. Dropping an image when creating a card still reads prompts only by default; use **Load generation settings from image** (with overwrite confirm) for models/params/size/LoRA.
+JSON cards can sparsely store LoRAs, models, sampler settings (including seed/size), and double-sample settings. Empty fields are omitted from JSON; presence of a double-sample block means second pass ON (no separate enable flag). When Scheduler tracks resolve those cards via wildcard syntax, enable **Auto-embed Wildcard LoRAs** and/or **Auto-apply models / inference parameters** to write matching nodes before queueing, then restore the canvas baseline (seed is not restored). With auto-embed on, **Group same models / LoRAs** queues jobs that share the same stack together to reduce reloads. Conflict rules: LoRAs stack (skip same name); everything else is first-wins per field. **Bypass Switch** follows whether the card has double-sample fields—wire the second-pass subgraph/parameters into it (one switch per workflow for now). Dropping an image when creating a card still reads prompts only by default; use **Load generation settings from image** (with overwrite confirm) for models/params/size/LoRA. Detail view can also push models / LoRA / parameters into the canvas in one click.
 
-<!-- Screenshot below predates the Group same LoRAs toggle; UI text is the same otherwise. -->
-![JSON card LoRAs / wildcard auto-embed LoRA](docs/images/json_card_lora.png)
+![JSON card LoRAs / generation settings / wildcard auto-apply](docs/images/json_card_lora.png)
 
 ### Multi-track Prompt Scheduler
 
@@ -31,7 +32,7 @@ Stack positives across tracks with random / sequence / shuffle, Impact-compatibl
 
 ### Metadata reuse (Meta Loader & Meta Apply)
 
-Read prompts and params from common image formats. Drop images from the Browser UI, outside the app, or ComfyUI assets; one click to reuse embedded prompts, sampler settings, and LoRA stacks (LoRA apply needs [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager)).
+Read prompts and params from common image formats. Drop images from the Browser UI, outside the app, or ComfyUI assets; one click to reuse embedded prompts, sampler settings, and LoRA stacks (LoRA apply needs [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager)). Meta Apply has separate toggles for model, LoRA, inference parameters, and prompt. Applying parameters also syncs Bypass Switch from whether double-sample fields are present.
 
 ![Meta Apply](docs/images/meta_apply.png)
 

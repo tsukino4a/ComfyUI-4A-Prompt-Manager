@@ -4,7 +4,9 @@
 
 中文视频介绍（Bilibili）：https://www.bilibili.com/video/BV1DWKv6NE6t
 
-面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard、多轨拼装提示词、从图片元数据回填参数，并保存带便携参数的生成结果。
+面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard 与 JSON 卡片（LoRA + 稀疏生成设置）、多轨拼装提示词、Wildcard 批量时自动套用设置、从图片元数据回填，并保存带便携参数的生成结果。
+
+**当前版本：1.2.0** — 卡片生成设置、二采 Bypass Switch、Wildcard 自动套用 LoRA/模型/参数，以及相同 LoRA 栈批量连跑。
 
 ![总览](docs/images/hero.png)
 
@@ -12,16 +14,15 @@
 
 ### 完整易用的提示词管理前端
 
-侧栏库界面，提示词按普通文件夹结构保存（JSON 卡片 + TXT Wildcard），复制文件夹即可备份/分享；随意导入导出；可为卡片生成预览图（内置 API 工作流，也可替换成你自己的 `api.json`）。
+侧栏库界面，提示词按普通文件夹结构保存（JSON 卡片 + TXT Wildcard），复制文件夹即可备份/分享；随意导入导出；可为卡片生成预览图（内置 API 工作流，也可替换成你自己的 `api.json`）。会记住上次文件夹与侧栏展开状态；刷新库后还可按 hash 把卡片模型名对齐到本地文件。
 
 ![Browser](docs/images/browser.png)
 
 ### JSON 卡片 LoRA / 生成设置 + Wildcard 自动套用
 
-JSON 卡片可稀疏绑定 LoRA、模型、推理参数（含 seed/宽高）、双采样参数。未填写的字段不会写入 JSON；有双采样字段块即视为二采 ON（不再单独写 enable）。当 Scheduler 栏目用 Wildcard 语法引用这些卡片时，可分别开启「自动嵌入 Wildcard LoRA」「自动应用模型 / 推理参数」：入队前写入对应节点，跑完恢复画布基线（seed 不恢复）。冲突规则：LoRA 可叠（同名跳过），其余按字段先到先得。Bypass Switch 按卡片是否含双采样字段开关——把二采子图/参数节点接到开关上即可。建卡拖图默认仍只读提示词；可用「从图片加载生成设置」覆盖加载（已有设置会确认）。
+JSON 卡片可稀疏绑定 LoRA、模型、推理参数（含 seed/宽高）、双采样参数。未填写的字段不会写入 JSON；有双采样字段块即视为二采 ON（不再单独写 enable）。当 Scheduler 栏目用 Wildcard 语法引用这些卡片时，可分别开启「自动嵌入 Wildcard LoRA」「自动应用模型 / 推理参数」：入队前写入对应节点，跑完恢复画布基线（seed 不恢复）。开启自动嵌入后，可用「相同模型/LoRA 连跑」把同一套栈的任务排在一起，减少反复加载。冲突规则：LoRA 可叠（同名跳过），其余按字段先到先得。**Bypass Switch** 按卡片是否含双采样字段开关——把二采子图/参数节点接到开关上即可（目前全图只支持一个）。建卡拖图默认仍只读提示词；可用「从图片加载生成设置」覆盖加载（已有设置会确认）。详情页也可一键把模型 / LoRA / 参数推到画布。
 
-<!-- 下图截图尚未更新「相同 LoRA 连跑」按钮，其它说明一致。 -->
-![JSON 卡片 LoRA / Wildcard 自动嵌入 LoRA](docs/images/json_card_lora.png)
+![JSON 卡片 LoRA / 生成设置 / Wildcard 自动套用](docs/images/json_card_lora.png)
 
 ### 多层 Prompt Scheduler
 
@@ -31,7 +32,7 @@ JSON 卡片可稀疏绑定 LoRA、模型、推理参数（含 seed/宽高）、�
 
 ### 元数据复用（Meta Loader / Meta Apply）
 
-兼容常见图片格式。可从前端节点、系统外部或 ComfyUI 资产任意拖入图片；一键复用嵌入的提示词、推理参数与 LoRA（LoRA 回填需安装 [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager)）。
+兼容常见图片格式。可从前端节点、系统外部或 ComfyUI 资产任意拖入图片；一键复用嵌入的提示词、推理参数与 LoRA（LoRA 回填需安装 [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager)）。Meta Apply 可分别开关：模型、LoRA、推理参数、提示词；套用推理参数时也会按有无双采样字段同步 Bypass Switch。
 
 ![Meta Apply](docs/images/meta_apply.png)
 
