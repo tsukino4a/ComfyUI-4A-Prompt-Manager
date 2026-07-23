@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { getPngMetadata, getWebpMetadata } from "../../scripts/pnginfo.js";
-import { readImagePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=13";
+import { readImagePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=14";
 import { getLocale, pm4aFetch, t } from "./i18n.js?v=1";
 
 export const SCHEDULER_NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
@@ -442,14 +442,25 @@ function sparseObject(value) {
   return value;
 }
 
+/** True when a scheduler settings plan has anything to write. */
+export function settingsPlanNonempty(plan) {
+  if (!plan || typeof plan !== "object") return false;
+  if (Array.isArray(plan.models) && plan.models.length) return true;
+  if (Object.keys(sparseObject(plan.parameters)).length) return true;
+  if (Object.keys(sparseObject(plan.double_sample_parameters)).length) return true;
+  return false;
+}
+
 /**
  * Apply sparse Wildcard card settings collected by scheduler prepare.
  * Parameters flag covers first-pass, double-sample, and Bypass sync together.
+ * Empty plans are no-ops (plain text / no card settings must not touch Bypass).
  * @param {object} hostNode
  * @param {object} plan
  * @param {{ applyModels?: boolean, applyParameters?: boolean }} [options]
  */
 export async function applySettingsPlanFromPayload(hostNode, plan, options = {}) {
+  if (!settingsPlanNonempty(plan)) return { applied: [], errors: [] };
   const applyModels = options.applyModels === true;
   const applyParameters = options.applyParameters === true;
   const applied = [];

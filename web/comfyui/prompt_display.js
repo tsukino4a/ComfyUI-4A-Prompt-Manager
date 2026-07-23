@@ -4,7 +4,7 @@ import {
   formatRawMetadataJson,
   parsePromptDocument,
   registerKnownSchedulers,
-} from "/pm4a/static/image_prompt_metadata.js?v=13";
+} from "/pm4a/static/image_prompt_metadata.js?v=14";
 import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js?v=compact-labels-2";
 import {
   buildStoredImageUrl,
@@ -51,7 +51,7 @@ import {
   setWidgetValue,
   syncBypassSwitchFromDoubleSample,
   withGraphChangeTransaction,
-} from "./meta_apply_core.js?v=9";
+} from "./meta_apply_core.js?v=10";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const DISPLAY_NODE_CLASS = "Prompt Display (4A Prompt Manager)";

@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { parsePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=13";
+import { parsePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=14";
 import {
   fetchImageFile,
   looksLikeImageFile,
@@ -13,7 +13,7 @@ import { configureComfyI18n, t } from "./i18n.js?v=1";
 import {
   applyAllFromPayload,
   readImagePromptSnapshot,
-} from "./meta_apply_core.js?v=9";
+} from "./meta_apply_core.js?v=10";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const NODE_CLASS = "Meta Apply (4A Prompt Manager)";

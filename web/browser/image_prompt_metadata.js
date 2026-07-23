@@ -264,8 +264,8 @@ function normalizeLoraMetadata(value, promptText = "") {
 
 function normalizeModels(value) {
   if (!Array.isArray(value)) return [];
-  const models = [];
-  const seen = new Set();
+  // Deduplicate by type+name; prefer the longer hash (full sha256 over Autov2).
+  const byIdentity = new Map();
   for (const entry of value) {
     const type = cleanText(entry?.type) || "模型";
     const name = cleanText(entry?.name);
@@ -273,17 +273,47 @@ function normalizeModels(value) {
     const versionId = entry?.model_version_id ?? entry?.modelVersionId ?? "";
     const modelVersionId = String(versionId ?? "").trim();
     if (!name && !hash && !modelVersionId) continue;
-    const key = `${type.toLowerCase()}\u0000${name.toLowerCase()}\u0000${hash.toLowerCase()}\u0000${modelVersionId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    models.push({
+    const identity = `${type.toLowerCase()}\u0000${name.toLowerCase()}`;
+    const item = {
       type,
       name,
       hash,
       ...(modelVersionId ? { model_version_id: modelVersionId } : {}),
-    });
+    };
+    const previous = byIdentity.get(identity);
+    if (!previous) {
+      byIdentity.set(identity, item);
+      continue;
+    }
+    const prevHash = cleanText(previous.hash);
+    const nextHash = hash;
+    const preferNext = (
+      nextHash.length > prevHash.length
+      || (!prevHash && nextHash)
+      || (!previous.model_version_id && item.model_version_id)
+    );
+    if (preferNext) {
+      byIdentity.set(identity, {
+        ...item,
+        hash: nextHash.length >= prevHash.length ? nextHash : prevHash,
+        ...(previous.model_version_id && !item.model_version_id
+          ? { model_version_id: previous.model_version_id }
+          : {}),
+      });
+    } else if (nextHash && prevHash.startsWith(nextHash) && nextHash.length < prevHash.length) {
+      // Incoming short hash is a prefix of the kept full hash — ignore.
+    } else if (nextHash && !prevHash) {
+      byIdentity.set(identity, { ...previous, hash: nextHash });
+    } else if (item.model_version_id && !previous.model_version_id) {
+      byIdentity.set(identity, { ...previous, model_version_id: item.model_version_id });
+    }
   }
-  return models;
+  return [...byIdentity.values()].map((entry) => {
+    const cleaned = { type: entry.type, name: entry.name };
+    if (entry.hash) cleaned.hash = entry.hash;
+    if (entry.model_version_id) cleaned.model_version_id = entry.model_version_id;
+    return cleaned;
+  });
 }
 
 function finiteNumber(value) {

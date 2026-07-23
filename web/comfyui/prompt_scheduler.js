@@ -19,8 +19,9 @@ import {
   mergeLoraAppendText,
   modelGroupKey,
   readLoraLoaderText,
+  settingsPlanNonempty,
   writeLoraLoaderText,
-} from "./meta_apply_core.js?v=9";
+} from "./meta_apply_core.js?v=10";
 
 const NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
 const TRACK_INPUT_PREFIX = "pm4a_track_";
@@ -1441,7 +1442,9 @@ app.registerExtension({
                     ? (data.settings_plans?.[0] || null)
                     : null;
                   let settingsBaseline = null;
-                  if (settingsPlan) {
+                  // Plain text / no card settings → empty plan. Must not apply
+                  // (that would flip Bypass OFF before serialize).
+                  if (settingsPlanNonempty(settingsPlan)) {
                     settingsBaseline = {
                       parameters: snapshotNodeWidgets(findInputParametersTarget(schedulerNode)),
                       doubleSample: snapshotNodeWidgets(
