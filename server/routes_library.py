@@ -48,6 +48,45 @@ async def handle_reload(_request: web.Request) -> web.Response:
         return _json_error(tr("刷新提示词库失败：{error}", error=exc), 500)
 
 
+async def handle_models_align_preview(_request: web.Request) -> web.Response:
+    try:
+        payload = await asyncio.to_thread(wc.preview_local_model_alignments)
+        return web.json_response({"success": True, **payload})
+    except Exception as exc:
+        logger.exception("model align preview failed")
+        return _json_error(tr("扫描本地模型对齐失败：{error}", error=exc), 500)
+
+
+async def handle_models_align_apply(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        return _json_error("invalid json")
+    keys = data.get("keys")
+    if keys is not None and not isinstance(keys, list):
+        return _json_error("keys must be an array")
+    try:
+        progress_id = _validated_progress_id(data.get("progress_id", ""))
+    except ValueError as exc:
+        return _json_error(str(exc))
+    progress_callback = _begin_progress(progress_id)
+    try:
+        payload = await asyncio.to_thread(
+            wc.apply_local_model_alignments,
+            keys,
+            progress_callback,
+        )
+    except Exception as exc:
+        message = tr("写回本地模型对齐失败：{error}", error=exc)
+        _finish_progress(progress_id, message)
+        logger.exception("model align apply failed")
+        return _json_error(message, 500)
+    _finish_progress(progress_id)
+    return web.json_response({"success": True, **payload})
+
+
 async def handle_list(request: web.Request) -> web.Response:
     try:
         prefix = request.rel_url.query.get("prefix", "")
@@ -146,6 +185,13 @@ async def handle_update_entry(request: web.Request) -> web.Response:
     negative = data.get("negative") if "negative" in data else None
     note = data.get("note") if "note" in data else None
     lora = data.get("lora") if "lora" in data else None
+    models = data.get("models") if "models" in data else None
+    parameters = data.get("parameters") if "parameters" in data else None
+    double_sample_parameters = (
+        data.get("double_sample_parameters")
+        if "double_sample_parameters" in data
+        else None
+    )
     if name is not None and not isinstance(name, str):
         return _json_error("name must be string")
     if content is not None and not isinstance(content, str):
@@ -156,6 +202,14 @@ async def handle_update_entry(request: web.Request) -> web.Response:
         return _json_error("note must be string")
     if lora is not None and not isinstance(lora, dict):
         return _json_error("lora must be object")
+    if models is not None and not isinstance(models, list):
+        return _json_error("models must be array")
+    if parameters is not None and not isinstance(parameters, dict):
+        return _json_error("parameters must be object")
+    if double_sample_parameters is not None and not isinstance(
+        double_sample_parameters, dict
+    ):
+        return _json_error("double_sample_parameters must be object")
 
     try:
         entry = wc.update_entry(
@@ -165,6 +219,9 @@ async def handle_update_entry(request: web.Request) -> web.Response:
             negative=negative,
             note=note,
             lora=lora,
+            models=models,
+            parameters=parameters,
+            double_sample_parameters=double_sample_parameters,
         )
     except FileNotFoundError as exc:
         return _json_error(str(exc), 404)
@@ -193,10 +250,21 @@ async def handle_create_entry(request: web.Request) -> web.Response:
     negative = data.get("negative", "")
     note = data.get("note", "")
     lora = data.get("lora", None)
+    models = data.get("models", None)
+    parameters = data.get("parameters", None)
+    double_sample_parameters = data.get("double_sample_parameters", None)
     if not all(isinstance(value, str) for value in (folder, name, content, negative, note)):
         return _json_error("folder, name, content, negative and note must be strings")
     if lora is not None and not isinstance(lora, dict):
         return _json_error("lora must be object")
+    if models is not None and not isinstance(models, list):
+        return _json_error("models must be array")
+    if parameters is not None and not isinstance(parameters, dict):
+        return _json_error("parameters must be object")
+    if double_sample_parameters is not None and not isinstance(
+        double_sample_parameters, dict
+    ):
+        return _json_error("double_sample_parameters must be object")
 
     try:
         entry = wc.create_entry(
@@ -206,6 +274,9 @@ async def handle_create_entry(request: web.Request) -> web.Response:
             negative=negative,
             note=note,
             lora=lora,
+            models=models,
+            parameters=parameters,
+            double_sample_parameters=double_sample_parameters,
         )
     except FileNotFoundError as exc:
         return _json_error(str(exc), 404)

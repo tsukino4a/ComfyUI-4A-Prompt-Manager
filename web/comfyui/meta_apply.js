@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 import { parsePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=13";
 import {
   fetchImageFile,
@@ -12,10 +13,27 @@ import { configureComfyI18n, t } from "./i18n.js?v=1";
 import {
   applyAllFromPayload,
   readImagePromptSnapshot,
-} from "./meta_apply_core.js?v=5";
+} from "./meta_apply_core.js?v=9";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const NODE_CLASS = "Meta Apply (4A Prompt Manager)";
+const PROMPT_DISPLAY_CLASS = "Prompt Display (4A Prompt Manager)";
+
+function settingsApplyHostNode() {
+  const graph = app.graph;
+  const nodes = graph?._nodes || graph?.nodes || [];
+  const preferred = nodes.find((node) => (
+    node
+    && (node.comfyClass === NODE_CLASS || node.type === NODE_CLASS)
+  ));
+  if (preferred) return preferred;
+  const display = nodes.find((node) => (
+    node
+    && (node.comfyClass === PROMPT_DISPLAY_CLASS || node.type === PROMPT_DISPLAY_CLASS)
+  ));
+  if (display) return display;
+  return { graph, properties: {} };
+}
 
 const TOP_PAD_PX = 8;
 
@@ -236,6 +254,41 @@ function setupMetaApplyNode(node) {
 
 app.registerExtension({
   name: "ComfyUI-4A-Prompt-Manager.MetaApply",
+
+  setup() {
+    api.addEventListener("pm4a_settings_apply", (event) => {
+      const detail = event?.detail || {};
+      const apply = String(detail.apply || "");
+      if (!["models", "lora", "parameters"].includes(apply)) return;
+      configureComfyI18n(app);
+      const host = settingsApplyHostNode();
+      const payload = {
+        models: Array.isArray(detail.models) ? detail.models : [],
+        loras: detail.loras && typeof detail.loras === "object"
+          ? detail.loras
+          : { text: "", hashes: [] },
+        parameters: detail.parameters && typeof detail.parameters === "object"
+          ? detail.parameters
+          : {},
+        double_sample_parameters: (
+          detail.double_sample_parameters
+          && typeof detail.double_sample_parameters === "object"
+        )
+          ? detail.double_sample_parameters
+          : {},
+      };
+      void applyAllFromPayload(host, payload, {
+        applyPrompt: false,
+        applyModel: apply === "models",
+        applyLora: apply === "lora",
+        applyParameters: apply === "parameters",
+      }).then((result) => {
+        if (result?.message) console.info("[4A-PM]", result.message);
+      }).catch((error) => {
+        console.warn("[4A-PM] settings apply failed:", error?.message || error);
+      });
+    });
+  },
 
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== NODE_CLASS) return;

@@ -1,8 +1,8 @@
 {
   "id": "05bd8ed2-bb08-4fab-a657-fcba6460900d",
   "revision": 0,
-  "last_node_id": 392,
-  "last_link_id": 981,
+  "last_node_id": 393,
+  "last_link_id": 983,
   "nodes": [
     {
       "id": 373,
@@ -712,7 +712,8 @@
           "type": "LATENT",
           "slot_index": 0,
           "links": [
-            962
+            962,
+            982
           ]
         }
       ],
@@ -1146,7 +1147,8 @@
           "name": "parameters_json",
           "type": "STRING",
           "links": [
-            976
+            976,
+            983
           ]
         }
       ],
@@ -1169,6 +1171,53 @@
       ],
       "color": "#323",
       "bgcolor": "#535"
+    },
+    {
+      "id": 393,
+      "type": "Bypass Switch (4A Prompt Manager)",
+      "pos": [
+        -120.0,
+        -520.0
+      ],
+      "size": [
+        280.0,
+        100.0
+      ],
+      "flags": {},
+      "order": 20,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "control_1",
+          "type": "*",
+          "link": 982
+        },
+        {
+          "name": "control_2",
+          "type": "*",
+          "link": 983
+        },
+        {
+          "name": "control_3",
+          "type": "*",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "enabled",
+          "type": "BOOLEAN",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Bypass Switch (4A Prompt Manager)"
+      },
+      "widgets_values": [
+        true
+      ],
+      "color": "#2f4f3a",
+      "bgcolor": "#24352a"
     }
   ],
   "links": [
@@ -1491,6 +1540,22 @@
       392,
       0,
       "STRING"
+    ],
+    [
+      982,
+      390,
+      0,
+      393,
+      0,
+      "*"
+    ],
+    [
+      983,
+      386,
+      6,
+      393,
+      1,
+      "*"
     ]
   ],
   "groups": [],

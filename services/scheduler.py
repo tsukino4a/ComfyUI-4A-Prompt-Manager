@@ -13,7 +13,12 @@ from typing import Any, Iterable, Optional
 
 try:
     from ..domain.wildcard_syntax import reference_keys
-    from ..storage.prompt_documents import merge_lora_texts
+    from ..storage.prompt_documents import (
+        merge_double_sample_parameters,
+        merge_lora_texts,
+        merge_models,
+        merge_parameters,
+    )
     from ..support.i18n import tr
     from . import prompt_library
     from .wildcard_expansion import (
@@ -23,7 +28,12 @@ try:
     )
 except ImportError:  # standalone preview
     from domain.wildcard_syntax import reference_keys  # type: ignore
-    from storage.prompt_documents import merge_lora_texts  # type: ignore
+    from storage.prompt_documents import (  # type: ignore
+        merge_double_sample_parameters,
+        merge_lora_texts,
+        merge_models,
+        merge_parameters,
+    )
     from support.i18n import tr  # type: ignore
     from services import prompt_library  # type: ignore
     from services.wildcard_expansion import (  # type: ignore
@@ -102,6 +112,12 @@ def normalize_config(value: Any) -> dict[str, Any]:
         "tracks": tracks,
         "lora_append": bool(value.get("lora_append", False)),
         "lora_group_same": bool(value.get("lora_group_same", False)),
+        "settings_apply_models": bool(value.get("settings_apply_models", False)),
+        # Double-sample apply is folded into parameters (legacy key still accepted).
+        "settings_apply_parameters": bool(
+            value.get("settings_apply_parameters", False)
+            or value.get("settings_apply_double_sample", False)
+        ),
     }
 
 
@@ -232,6 +248,43 @@ def _collect_lora_append_text(
     return merge_lora_texts(*texts)
 
 
+def _collect_settings_plan(
+    clean: dict[str, Any],
+    *,
+    resolver: LibraryWildcardResolver,
+    selection_seed: int,
+    execution_index: int,
+) -> dict[str, Any]:
+    """Dry-run expansions and merge sparse card generation settings."""
+    models_groups: list[Any] = []
+    parameters_list: list[dict[str, Any]] = []
+    double_sample_list: list[dict[str, Any]] = []
+    for track in clean["tracks"]:
+        if not track["enabled"]:
+            continue
+        expanded = expand_prompt(
+            track["text"],
+            resolver=resolver,
+            seed=selection_seed,
+            mode=track["mode"],
+            execution_index=execution_index,
+            track_id=track["id"],
+        )
+        if expanded.models:
+            models_groups.append(list(expanded.models))
+        if expanded.parameters:
+            parameters_list.append(dict(expanded.parameters))
+        if expanded.double_sample_parameters:
+            double_sample_list.append(dict(expanded.double_sample_parameters))
+    return {
+        "models": merge_models(*models_groups),
+        "parameters": merge_parameters(*parameters_list),
+        "double_sample_parameters": merge_double_sample_parameters(
+            *double_sample_list
+        ),
+    }
+
+
 def plan_lora_appends(
     config: Any,
     *,
@@ -249,6 +302,33 @@ def plan_lora_appends(
         {
             "execution_index": start + offset,
             "append_text": _collect_lora_append_text(
+                clean,
+                resolver=active_resolver,
+                selection_seed=selection_seed,
+                execution_index=start + offset,
+            ),
+        }
+        for offset in range(count)
+    ]
+
+
+def plan_settings_appends(
+    config: Any,
+    *,
+    seed: int,
+    start_index: int,
+    task_count: int,
+    resolver: Optional[LibraryWildcardResolver] = None,
+) -> list[dict[str, Any]]:
+    clean = normalize_config(config)
+    active_resolver = resolver or prompt_library.snapshot_resolver()
+    selection_seed = int(seed)
+    start = max(0, int(start_index))
+    count = max(1, int(task_count))
+    return [
+        {
+            "execution_index": start + offset,
+            **_collect_settings_plan(
                 clean,
                 resolver=active_resolver,
                 selection_seed=selection_seed,
@@ -316,6 +396,16 @@ def prepare_run(
             resolver=resolver,
         )
 
+    settings_plans: list[dict[str, Any]] = []
+    if clean.get("settings_apply_models") or clean.get("settings_apply_parameters"):
+        settings_plans = plan_settings_appends(
+            clean,
+            seed=selection_seed,
+            start_index=clean["start_index"],
+            task_count=count,
+            resolver=resolver,
+        )
+
     run_id = uuid.uuid4().hex
     now = time.time()
     with _run_lock:
@@ -334,6 +424,7 @@ def prepare_run(
             for key in folders
         },
         "lora_plans": lora_plans,
+        "settings_plans": settings_plans,
     }
 
 

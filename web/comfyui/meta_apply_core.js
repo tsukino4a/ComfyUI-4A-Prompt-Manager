@@ -6,6 +6,7 @@ import { getLocale, pm4aFetch, t } from "./i18n.js?v=1";
 export const SCHEDULER_NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
 export const INPUT_PARAMETERS_NODE_CLASS = "Input Parameters (4A Prompt Manager)";
 export const DOUBLE_SAMPLE_PARAMETERS_NODE_CLASS = "Double Sample Parameters (4A Prompt Manager)";
+export const BYPASS_SWITCH_NODE_CLASS = "Bypass Switch (4A Prompt Manager)";
 export const LORA_LOADER_NODE_CLASS = "Lora Loader (LoraManager)";
 
 export const TARGET_NODE_PROPERTY = "pm4a_target_scheduler_id";
@@ -123,6 +124,17 @@ export function isLoraLoader(node) {
 
 export function loraLoaderNodes(graph) {
   return (graph?._nodes || graph?.nodes || []).filter(isLoraLoader);
+}
+
+export function isBypassSwitch(node) {
+  return node && (
+    node.comfyClass === BYPASS_SWITCH_NODE_CLASS
+    || node.type === BYPASS_SWITCH_NODE_CLASS
+  );
+}
+
+export function bypassSwitchNodes(graph) {
+  return (graph?._nodes || graph?.nodes || []).filter(isBypassSwitch);
 }
 
 export function modelTargetSpec(entry) {
@@ -319,6 +331,159 @@ export function findLoraLoaderTarget(hostNode) {
   if (isLoraLoader(chosen)) return chosen;
   const targets = loraLoaderNodes(graph);
   return targets.length === 1 ? targets[0] : null;
+}
+
+/** Exactly one Bypass Switch is supported for now. */
+export function findBypassSwitchTarget(hostNode) {
+  const targets = bypassSwitchNodes(hostNode.graph || app.graph);
+  if (targets.length > 1) {
+    throw new Error(t("工作流中有多个 Bypass Switch，目前只支持一个"));
+  }
+  return targets[0] || null;
+}
+
+export function applyBypassSwitch(hostNode, enabled) {
+  const target = findBypassSwitchTarget(hostNode);
+  if (!target) {
+    throw new Error(t("工作流中没有 Bypass Switch 节点"));
+  }
+  const result = target.__pm4aBypassSwitchReceive?.({ enabled: Boolean(enabled) });
+  if (!result) throw new Error(t("Bypass Switch 尚未准备好，请刷新页面"));
+  return t("已设置“{name}”为 {state}", {
+    name: target.title || t("Bypass Switch #{id}", { id: target.id }),
+    state: enabled ? t("启用") : t("旁路"),
+  });
+}
+
+/**
+ * Sync Bypass Switch from whether double-sample settings are present.
+ * ON when has fields; OFF when absent (skipped only if no switch and turning OFF).
+ */
+export function syncBypassSwitchFromDoubleSample(hostNode, hasDoubleSample) {
+  const enabled = Boolean(hasDoubleSample);
+  const bypassCount = bypassSwitchNodes(hostNode.graph || app.graph).length;
+  if (!enabled && bypassCount === 0) return null;
+  return applyBypassSwitch(hostNode, enabled);
+}
+
+/**
+ * Apply first-pass / second-pass parameter blocks and sync Bypass.
+ * Shared by Meta Apply and Prompt Display.
+ */
+export function applyParameterSettingsFromPayload(hostNode, payload) {
+  const applied = [];
+  const errors = [];
+  const parameters = payload?.parameters && typeof payload.parameters === "object"
+    ? payload.parameters
+    : null;
+  const doubleParams = sparseObject(payload?.double_sample_parameters);
+  const hasDoubleSample = Object.keys(doubleParams).length > 0;
+
+  if (parameters && Object.keys(parameters).length) {
+    try {
+      const message = applyInputParametersFromPayload(hostNode, { parameters });
+      if (message) applied.push(t("生成参数"));
+    } catch (error) {
+      errors.push(t("{key}：{error}", { key: t("生成参数"), error: error.message || error }));
+    }
+  }
+
+  if (hasDoubleSample) {
+    try {
+      const message = applyDoubleSampleFromPayload(hostNode, {
+        double_sample_parameters: doubleParams,
+      });
+      if (message) applied.push(t("双采样参数"));
+    } catch (error) {
+      errors.push(t("{key}：{error}", {
+        key: t("双采样参数"),
+        error: error.message || error,
+      }));
+    }
+  }
+
+  try {
+    const message = syncBypassSwitchFromDoubleSample(hostNode, hasDoubleSample);
+    if (message) applied.push(t("二采样开关"));
+  } catch (error) {
+    errors.push(t("{key}：{error}", {
+      key: t("二采样开关"),
+      error: error.message || error,
+    }));
+  }
+
+  return { applied, errors };
+}
+
+/** Stable key for batch “group same model” ordering (aligns with modelTargetSpec). */
+export function modelGroupKey(plan) {
+  const models = Array.isArray(plan?.models) ? plan.models : [];
+  if (!models.length) return "";
+  const ranked = [];
+  for (const entry of models) {
+    if (!entry?.name || !modelTargetSpec(entry)) continue;
+    const type = String(entry?.type || "").trim().toLowerCase();
+    let score = 3;
+    if (type === "基础模型" || type === "checkpoint") score = 0;
+    else if (type === "unet" || /\bunet\b/.test(type) || /\bdiffusion\b/.test(type)) score = 1;
+    else if (type.includes("基础") || type.includes("模型") || type.includes("refiner")) score = 2;
+    ranked.push({ name: String(entry.name), score });
+  }
+  if (!ranked.length) return "";
+  ranked.sort((left, right) => (
+    left.score - right.score
+    || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+  ));
+  return ranked[0].name;
+}
+
+function sparseObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value;
+}
+
+/**
+ * Apply sparse Wildcard card settings collected by scheduler prepare.
+ * Parameters flag covers first-pass, double-sample, and Bypass sync together.
+ * @param {object} hostNode
+ * @param {object} plan
+ * @param {{ applyModels?: boolean, applyParameters?: boolean }} [options]
+ */
+export async function applySettingsPlanFromPayload(hostNode, plan, options = {}) {
+  const applyModels = options.applyModels === true;
+  const applyParameters = options.applyParameters === true;
+  const applied = [];
+  const errors = [];
+  const payload = {
+    models: Array.isArray(plan?.models) ? plan.models : [],
+    parameters: plan?.parameters && typeof plan.parameters === "object" ? plan.parameters : null,
+    double_sample_parameters: (
+      plan?.double_sample_parameters
+      && typeof plan.double_sample_parameters === "object"
+    )
+      ? plan.double_sample_parameters
+      : null,
+  };
+
+  if (applyModels && payload.models.length) {
+    const modelResult = await applyModelsFromPayload(hostNode, payload);
+    if (modelResult.applied.length) {
+      applied.push(
+        modelResult.applied.length === 1
+          ? t("模型 1 个")
+          : t("模型 {count} 个", { count: modelResult.applied.length }),
+      );
+    }
+    errors.push(...modelResult.errors);
+  }
+
+  if (applyParameters) {
+    const paramResult = applyParameterSettingsFromPayload(hostNode, payload);
+    applied.push(...paramResult.applied);
+    errors.push(...paramResult.errors);
+  }
+
+  return { applied, errors };
 }
 
 export function withGraphChangeTransaction(node, update) {
@@ -643,23 +808,9 @@ export async function applyAllFromPayload(hostNode, payload, options = {}) {
   }
 
   if (applyParameters) {
-    try {
-      const message = applyInputParametersFromPayload(hostNode, payload);
-      if (message) applied.push(t("生成参数"));
-    } catch (error) {
-      if (payload?.parameters) {
-        errors.push(t("{key}：{error}", { key: t("生成参数"), error: error.message || error }));
-      }
-    }
-
-    try {
-      const message = applyDoubleSampleFromPayload(hostNode, payload);
-      if (message) applied.push(t("双采样参数"));
-    } catch (error) {
-      if (payload?.double_sample_parameters) {
-        errors.push(t("{key}：{error}", { key: t("双采样参数"), error: error.message || error }));
-      }
-    }
+    const paramResult = applyParameterSettingsFromPayload(hostNode, payload);
+    applied.push(...paramResult.applied);
+    errors.push(...paramResult.errors);
   }
 
   const successText = applied.length

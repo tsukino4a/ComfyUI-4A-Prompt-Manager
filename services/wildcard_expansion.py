@@ -37,6 +37,28 @@ def _lora_text_of(value: Any) -> str:
     return ""
 
 
+def _settings_of(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {"models": (), "parameters": {}, "double_sample_parameters": {}}
+    models_raw = value.get("models") or []
+    models = tuple(dict(entry) for entry in models_raw if isinstance(entry, dict))
+    parameters = (
+        dict(value["parameters"])
+        if isinstance(value.get("parameters"), dict)
+        else {}
+    )
+    double_sample = (
+        dict(value["double_sample_parameters"])
+        if isinstance(value.get("double_sample_parameters"), dict)
+        else {}
+    )
+    return {
+        "models": models,
+        "parameters": parameters,
+        "double_sample_parameters": double_sample,
+    }
+
+
 @dataclass(frozen=True)
 class LibraryWildcardResolver:
     """Immutable, structured view of one loaded wildcard-library snapshot."""
@@ -46,6 +68,7 @@ class LibraryWildcardResolver:
     negative_dict: Mapping[str, str]
     display_paths: Mapping[str, str]
     lora_dict: Mapping[str, Any]
+    settings_dict: Mapping[str, Any]
     candidate_dict: Mapping[str, tuple[wildcard_syntax.WildcardCandidate, ...]]
     folder_candidate_dict: Mapping[
         str, tuple[wildcard_syntax.WildcardCandidate, ...]
@@ -59,6 +82,7 @@ class LibraryWildcardResolver:
         negative_dict: Mapping[str, str],
         display_paths: Mapping[str, str],
         lora_dict: Mapping[str, Any] | None = None,
+        settings_dict: Mapping[str, Any] | None = None,
     ) -> "LibraryWildcardResolver":
         files = {
             key: tuple(values)
@@ -75,6 +99,14 @@ class LibraryWildcardResolver:
         }
         loras = {
             key: lora_dict.get(key, "") if lora_dict is not None else ""
+            for key in files
+        }
+        settings = {
+            key: (
+                settings_dict.get(key, {})
+                if settings_dict is not None
+                else {}
+            )
             for key in files
         }
         candidate_keys = list(files)
@@ -99,6 +131,16 @@ class LibraryWildcardResolver:
                     content=content,
                     negative=negatives.get(key, ""),
                     lora_text=_lora_text_of(loras.get(key)),
+                    models=_settings_of(settings.get(key)).get("models") or (),
+                    parameters=dict(
+                        _settings_of(settings.get(key)).get("parameters") or {}
+                    ),
+                    double_sample_parameters=dict(
+                        _settings_of(settings.get(key)).get(
+                            "double_sample_parameters"
+                        )
+                        or {}
+                    ),
                 )
                 for content in options
             )
@@ -118,6 +160,7 @@ class LibraryWildcardResolver:
             negative_dict=MappingProxyType(negatives),
             display_paths=MappingProxyType(displays),
             lora_dict=MappingProxyType(loras),
+            settings_dict=MappingProxyType(settings),
             candidate_dict=MappingProxyType(candidates),
             folder_candidate_dict=MappingProxyType(folder_candidates),
         )

@@ -13,19 +13,38 @@ import {
   setLocale,
   t,
   trySaveBrowserLocale,
-} from "./i18n.js?v=16";
+} from "./i18n.js?v=19";
 import {
   detectLoraManager,
   emptyLoraPayload,
   entriesToLoraPayload,
+  formatLoraEntryMeta,
   loraPayloadEqual,
   parseLoraEntries,
   formatLoraStrength,
   pickExactLoraFromManager,
   pickLoraFromManagerItem,
+  resolveLoraManagerTitle,
   searchLoraManager,
   withLoraStrength,
-} from "./lora_library.js?v=2";
+} from "./lora_library.js?v=3";
+import {
+  RATIO_PRESETS,
+  cloneCardSettings,
+  dimensionsFromRatio,
+  emptyCardSettings,
+  fillDoubleSampleForm,
+  fillParametersForm,
+  loraPayloadFromPromptDocument,
+  alignModelsToLocal,
+  persistableModels,
+  renderModelsList,
+  settingsEqual,
+  settingsFromPromptDocument,
+  settingsNonempty,
+  sparseDoubleSampleFromForm,
+  sparseParametersFromForm,
+} from "./card_settings.js?v=4";
 
 setLocale(readBrowserLocale());
 applyDocumentTranslations();
@@ -78,6 +97,18 @@ const INSPECTOR_BUTTON_LABELS = {
   negative: t("负面"),
 };
 
+const APPLY_BUTTON_LABELS = {
+  models: t("模型"),
+  lora: "LoRA",
+  parameters: t("参数"),
+};
+
+const APPLY_TOAST_LABELS = {
+  models: t("模型"),
+  lora: "LoRA",
+  parameters: t("推理参数"),
+};
+
 const SEND_TO_LABELS = {
   quality: "发送到质量",
   action: "发送到动作",
@@ -104,6 +135,21 @@ const ICONS = {
   </svg>`,
   negative: `<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true">
     <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM7 11h10v2H7v-2Z" />
+  </svg>`,
+};
+
+const APPLY_ICONS = {
+  models: `<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 2.4 3.5 7v10L12 21.6 20.5 17V7L12 2.4Zm0 2.3 6.2 3.3-6.2 3.3-6.2-3.3L12 4.7Zm-7 5.1 6 3.2v7.1l-6-3.2V9.8Zm8 10.3v-7.1l6-3.2v7.1l-6 3.2Z" />
+  </svg>`,
+  lora: `<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M7 4h10v3H7V4Zm-2 5h14v3H5V9Zm2 5h10v3H7v-3Zm-2 5h14v3H5v-3Z" />
+  </svg>`,
+  parameters: `<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 6h10v2H4V6Zm12 0h4v2h-4V6ZM4 11h4v2H4v-2Zm6 0h10v2H10v-2ZM4 16h12v2H4v-2Zm14 0h2v2h-2v-2Z" />
+    <circle cx="15" cy="7" r="2" />
+    <circle cx="7" cy="12" r="2" />
+    <circle cx="17" cy="17" r="2" />
   </svg>`,
 };
 
@@ -204,10 +250,14 @@ const state = {
   editingNegative: false,
   editingNote: false,
   detailLoraEntries: [],
+  detailModels: [],
+  createModels: [],
+  createLoraEntries: [],
   loraManagerAvailable: false,
   loraPickerTimer: 0,
   loraPickerRequestId: 0,
   loraPickerPending: null,
+  loraPickerTarget: "detail",
   savingEntry: false,
   saveRequestId: 0,
   uploadingImage: false,
@@ -442,10 +492,16 @@ function clearCreateImage() {
   discardGeneratedPreview(generatedLocator);
   const preview = $("add-prompt-image-preview");
   preview.onerror = null;
+  preview.onload = null;
   preview.removeAttribute("src");
   preview.hidden = true;
   $("add-prompt-image-empty").hidden = false;
   $("add-prompt-image-drop").classList.remove("dragging");
+  const dims = $("add-prompt-image-dims");
+  if (dims) {
+    dims.hidden = true;
+    dims.textContent = "";
+  }
   setCreateImageStatus(t("尚未选择图片"));
 }
 
@@ -453,10 +509,17 @@ function openAddPromptModal() {
   const form = $("add-prompt-form");
   form.reset();
   clearCreateImage();
+  state.createModels = [];
+  state.createLoraEntries = [];
+  fillParametersForm($("add-parameters-form"), {});
+  fillDoubleSampleForm($("add-double-form"), {});
+  renderCreateModelsList();
+  renderCreateLoraList();
   populateCreateFolderOptions(state.prefix);
   setModalStatus("add-prompt-status");
   $("add-prompt-modal").hidden = false;
   document.body.classList.add("modal-open");
+  void ensureCardSettingsOptions();
   requestAnimationFrame(() => $("add-prompt-name").focus());
 }
 
@@ -504,7 +567,14 @@ async function setCreateImage(file) {
   state.createGeneratedLocator = null;
   state.createImageUrl = URL.createObjectURL(file);
   const preview = $("add-prompt-image-preview");
+  const dims = $("add-prompt-image-dims");
   preview.hidden = false;
+  preview.onload = () => {
+    if (dims && preview.naturalWidth > 0) {
+      dims.hidden = false;
+      dims.textContent = `${preview.naturalWidth} × ${preview.naturalHeight} px`;
+    }
+  };
   preview.src = state.createImageUrl;
   preview.onerror = () => setCreateImageStatus(t("图片预览失败"), "error");
   $("add-prompt-image-empty").hidden = true;
@@ -564,9 +634,25 @@ async function saveNewPrompt(event) {
   let entry = null;
   let imageError = "";
   try {
+    const settings = readCreateSettingsDraft();
+    const lora = entriesToLoraPayload(state.createLoraEntries);
     const data = await api("/pm4a/api/entry/create", {
       method: "POST",
-      body: JSON.stringify({ folder, name, content, negative, note }),
+      body: JSON.stringify({
+        folder,
+        name,
+        content,
+        negative,
+        note,
+        ...(lora?.text || lora?.hashes?.length ? { lora } : {}),
+        ...(settings.models.length ? { models: settings.models } : {}),
+        ...(Object.keys(settings.parameters).length
+          ? { parameters: settings.parameters }
+          : {}),
+        ...(Object.keys(settings.double_sample_parameters).length
+          ? { double_sample_parameters: settings.double_sample_parameters }
+          : {}),
+      }),
     });
     entry = data.entry;
     if (!entry?.key) throw new Error(t("创建结果无效"));
@@ -1460,6 +1546,8 @@ function showOperationProgress(action, itemCount = 0, detail = "") {
     scan: [t("正在检测"), t("正在分析其他节点的 Wildcards")],
     import: [t("正在导入…"), t("正在写入提示词，请稍候")],
     export: [t("正在导出"), t("正在生成完整 JSON，请稍候")],
+    "align-scan": [t("正在扫描"), t("正在扫描可对齐的模型…")],
+    "align-apply": [t("正在对齐"), t("正在对齐并写回 JSON…")],
   };
   const [title, summary] = labels[action] || [t("正在处理"), t("正在处理文件，请稍候")];
   $("operation-progress-title").textContent = title;
@@ -2114,9 +2202,15 @@ function setViewMode(mode) {
 }
 
 function installInspectorSendIcons() {
-  document.querySelectorAll("#detail-inspector .inspector-send-button").forEach((button) => {
+  document.querySelectorAll("#detail-inspector .inspector-send-button[data-slot]").forEach((button) => {
     const slot = button.dataset.slot;
+    if (!ICONS[slot]) return;
     button.innerHTML = `${ICONS[slot]}<span>${INSPECTOR_BUTTON_LABELS[slot]}</span>`;
+  });
+  document.querySelectorAll("#detail-inspector .inspector-send-button[data-apply]").forEach((button) => {
+    const kind = button.dataset.apply;
+    if (!APPLY_ICONS[kind]) return;
+    button.innerHTML = `${APPLY_ICONS[kind]}<span>${APPLY_BUTTON_LABELS[kind]}</span>`;
   });
 }
 
@@ -2167,11 +2261,18 @@ function hasDirtyDetailEdits() {
       entriesToLoraPayload(state.detailLoraEntries),
       state.selected.lora || emptyLoraPayload(),
     );
+  const settingsChanged = capabilities.parameters !== false
+    && !settingsEqual(readDetailSettingsDraft(), {
+      models: state.selected.models || [],
+      parameters: state.selected.parameters || {},
+      double_sample_parameters: state.selected.double_sample_parameters || {},
+    });
   return titleChanged
     || contentChanged
     || negativeChanged
     || noteChanged
     || loraChanged
+    || settingsChanged
     || Boolean(state.imageDraft);
 }
 
@@ -2549,6 +2650,7 @@ async function saveDetailEdits() {
   const negative = $("detail-negative-editor").value;
   const note = $("detail-note-editor").value;
   const lora = entriesToLoraPayload(state.detailLoraEntries);
+  const settings = readDetailSettingsDraft();
   const imageDraft = state.imageDraft;
   if (!name) {
     setSendStatus(t("标题不能为空"), "error");
@@ -2566,16 +2668,27 @@ async function saveDetailEdits() {
   const negativeChanged = negative !== (state.selected.negative || "");
   const noteChanged = note !== (state.selected.note || "");
   const loraChanged = !loraPayloadEqual(lora, state.selected.lora || emptyLoraPayload());
+  const settingsChanged = !settingsEqual(settings, {
+    models: state.selected.models || [],
+    parameters: state.selected.parameters || {},
+    double_sample_parameters: state.selected.double_sample_parameters || {},
+  });
   const textChanged = titleChanged
     || contentChanged
     || negativeChanged
     || noteChanged
-    || loraChanged;
+    || loraChanged
+    || settingsChanged;
   if (titleChanged) payload.name = name;
   if (contentChanged) payload.content = content;
   if (negativeChanged) payload.negative = negative;
   if (noteChanged) payload.note = note;
   if (loraChanged) payload.lora = lora;
+  if (settingsChanged) {
+    payload.models = settings.models;
+    payload.parameters = settings.parameters;
+    payload.double_sample_parameters = settings.double_sample_parameters;
+  }
   const saveRequestId = ++state.saveRequestId;
 
   state.savingEntry = true;
@@ -3251,6 +3364,7 @@ function clearInspector() {
   state.selectedKey = "";
   state.selected = null;
   state.detailLoraEntries = [];
+  state.detailModels = [];
   state.saveRequestId += 1;
   clearImageDraft(false);
   resetImageUploadState();
@@ -3420,6 +3534,42 @@ async function sendByKey(key, slot, button) {
   }
 }
 
+async function sendSettingsApply(kind, button) {
+  if (!kind || button?.disabled) return;
+  if (!state.selected?.key) {
+    toast(t("请先选择一张卡片"), "error");
+    return;
+  }
+  button.disabled = true;
+  setSendStatus("");
+  try {
+    const settings = readDetailSettingsDraft();
+    const lora = entriesToLoraPayload(state.detailLoraEntries)
+      || state.selected.lora
+      || emptyLoraPayload();
+    await api("/pm4a/api/settings/apply", {
+      method: "POST",
+      body: JSON.stringify({
+        apply: kind,
+        key: state.selected.key,
+        models: settings.models,
+        parameters: settings.parameters,
+        double_sample_parameters: settings.double_sample_parameters,
+        lora,
+      }),
+    });
+    const message = t("已发送应用{label}", { label: APPLY_TOAST_LABELS[kind] || kind });
+    toast(message, "success");
+    setSendStatus(message, "success");
+  } catch (error) {
+    const message = String(error.message || error);
+    toast(message, "error");
+    setSendStatus(message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function copyByKey(key, button) {
   if (!key || button.disabled) return;
   button.disabled = true;
@@ -3468,12 +3618,12 @@ function renderInspectorImage(entry, cacheBust = false) {
   }
 }
 
-function renderDetailLoraList() {
-  const list = $("detail-lora-list");
-  list.replaceChildren();
-  for (const [index, entry] of state.detailLoraEntries.entries()) {
+function renderLoraEntriesList(listElement, entries, { onRemove, onChange } = {}) {
+  if (!listElement) return;
+  listElement.replaceChildren();
+  for (const [index, entry] of entries.entries()) {
     const resolved = withLoraStrength(entry, entry.strength);
-    state.detailLoraEntries[index] = resolved;
+    entries[index] = resolved;
     const row = document.createElement("div");
     row.className = "detail-lora-item";
     const tag = document.createElement("div");
@@ -3481,23 +3631,204 @@ function renderDetailLoraList() {
     tag.textContent = resolved.tag;
     const meta = document.createElement("div");
     meta.className = "detail-lora-meta";
-    meta.textContent = [resolved.hashName || resolved.name, resolved.hash]
-      .filter(Boolean)
-      .join(" · ");
+    meta.textContent = formatLoraEntryMeta(resolved);
+    if (!resolved.modelTitle) {
+      void resolveLoraManagerTitle(resolved).then((title) => {
+        if (!title || !meta.isConnected) return;
+        entries[index] = { ...entries[index], modelTitle: title };
+        meta.textContent = formatLoraEntryMeta(entries[index]);
+      });
+    }
+    const strength = document.createElement("input");
+    strength.type = "number";
+    strength.className = "detail-lora-strength";
+    strength.min = "-2";
+    strength.max = "2";
+    strength.step = "0.05";
+    strength.value = formatLoraStrength(resolved.strength);
+    strength.title = t("强度");
+    strength.setAttribute("aria-label", t("强度"));
+    strength.addEventListener("change", () => {
+      const next = withLoraStrength(entries[index], strength.value);
+      entries[index] = next;
+      tag.textContent = next.tag;
+      strength.value = next.strength;
+      onChange?.();
+    });
+    strength.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        strength.blur();
+      }
+    });
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "detail-edit-button";
     remove.title = t("删除 LoRA");
     remove.setAttribute("aria-label", remove.title);
     remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>';
-    remove.addEventListener("click", () => {
+    remove.addEventListener("click", () => onRemove?.(index));
+    row.append(tag, meta, strength, remove);
+    listElement.appendChild(row);
+  }
+}
+
+function renderDetailLoraList() {
+  renderLoraEntriesList($("detail-lora-list"), state.detailLoraEntries, {
+    onRemove: (index) => {
       state.detailLoraEntries = state.detailLoraEntries.filter((_, i) => i !== index);
       renderDetailLoraList();
       updateDetailEditControls();
-    });
-    row.append(tag, meta, remove);
-    list.appendChild(row);
+    },
+    onChange: () => updateDetailEditControls(),
+  });
+}
+
+function renderCreateLoraList() {
+  renderLoraEntriesList($("add-lora-list"), state.createLoraEntries, {
+    onRemove: (index) => {
+      state.createLoraEntries = state.createLoraEntries.filter((_, i) => i !== index);
+      renderCreateLoraList();
+    },
+  });
+}
+
+function getLoraPickerEntries() {
+  return state.loraPickerTarget === "create"
+    ? state.createLoraEntries
+    : state.detailLoraEntries;
+}
+
+function commitLoraPickerEntries(entries) {
+  if (state.loraPickerTarget === "create") {
+    state.createLoraEntries = entries;
+    renderCreateLoraList();
+    return;
   }
+  state.detailLoraEntries = entries;
+  renderDetailLoraList();
+  updateDetailEditControls();
+}
+
+function readDetailSettingsDraft() {
+  return {
+    models: persistableModels(state.detailModels),
+    parameters: sparseParametersFromForm($("detail-parameters-form")),
+    double_sample_parameters: sparseDoubleSampleFromForm($("detail-double-form")),
+  };
+}
+
+function readCreateSettingsDraft() {
+  return {
+    models: persistableModels(state.createModels),
+    parameters: sparseParametersFromForm($("add-parameters-form")),
+    double_sample_parameters: sparseDoubleSampleFromForm($("add-double-form")),
+  };
+}
+
+function renderDetailModelsList() {
+  renderModelsList($("detail-models-list"), state.detailModels, {
+    t,
+    onRemove: (index) => {
+      state.detailModels = state.detailModels.filter((_, i) => i !== index);
+      renderDetailModelsList();
+      updateDetailEditControls();
+    },
+  });
+}
+
+function renderCreateModelsList() {
+  renderModelsList($("add-models-list"), state.createModels, {
+    t,
+    onRemove: (index) => {
+      state.createModels = state.createModels.filter((_, i) => i !== index);
+      renderCreateModelsList();
+    },
+  });
+}
+
+function populateRatioHelper() {
+  const select = $("detail-ratio-helper");
+  if (!select || select.options.length) return;
+  for (const [name] of RATIO_PRESETS) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = t(name);
+    select.appendChild(option);
+  }
+}
+
+function applyRatioHelperToDetail() {
+  const dims = dimensionsFromRatio(
+    $("detail-ratio-helper").value,
+    Number($("detail-longest-helper").value) || 1536,
+  );
+  if (!dims) return;
+  const form = $("detail-parameters-form");
+  const width = form.querySelector('[data-param="width"]');
+  const height = form.querySelector('[data-param="height"]');
+  if (width) width.value = String(dims.width);
+  if (height) height.value = String(dims.height);
+  updateDetailEditControls();
+}
+
+function applySettingsDraftToDetail(settings, { replaceLora = false, lora = null } = {}) {
+  const next = cloneCardSettings(settings);
+  state.detailModels = next.models;
+  fillParametersForm($("detail-parameters-form"), next.parameters);
+  fillDoubleSampleForm($("detail-double-form"), next.double_sample_parameters);
+  renderDetailModelsList();
+  if (replaceLora && lora) {
+    state.detailLoraEntries = parseLoraEntries(lora);
+    renderDetailLoraList();
+  }
+  updateDetailEditControls();
+  void ensureCardSettingsOptions();
+}
+
+function applySettingsDraftToCreate(settings, { replaceLora = false, lora = null } = {}) {
+  const next = cloneCardSettings(settings);
+  state.createModels = next.models;
+  fillParametersForm($("add-parameters-form"), next.parameters);
+  fillDoubleSampleForm($("add-double-form"), next.double_sample_parameters);
+  renderCreateModelsList();
+  if (replaceLora && lora) {
+    state.createLoraEntries = parseLoraEntries(lora);
+    renderCreateLoraList();
+  }
+  void ensureCardSettingsOptions();
+}
+
+async function loadSettingsFromImageFile(file, target) {
+  const documentData = await readCreateImagePrompt(file);
+  if (!documentData) throw new Error(t("图片中没有可用的生成设置"));
+  const settings = settingsFromPromptDocument(documentData);
+  if (settings.models.length) {
+    settings.models = await alignModelsToLocal(settings.models);
+  }
+  const lora = loraPayloadFromPromptDocument(documentData);
+  const hasLora = Boolean(lora?.text || lora?.hashes?.length);
+  if (!settingsNonempty(settings) && !hasLora) {
+    throw new Error(t("图片中没有可用的生成设置"));
+  }
+  const existing = target === "detail"
+    ? readDetailSettingsDraft()
+    : readCreateSettingsDraft();
+  const existingLora = target === "detail"
+    ? entriesToLoraPayload(state.detailLoraEntries)
+    : entriesToLoraPayload(state.createLoraEntries);
+  const hasExisting = settingsNonempty(existing)
+    || Boolean(existingLora?.text || existingLora?.hashes?.length);
+  if (hasExisting) {
+    const confirmed = window.confirm(t("当前已有生成设置，是否覆盖？"));
+    if (!confirmed) return false;
+  }
+  if (target === "detail") {
+    applySettingsDraftToDetail(settings, { replaceLora: hasLora, lora });
+  } else {
+    applySettingsDraftToCreate(settings, { replaceLora: hasLora, lora });
+  }
+  return true;
 }
 
 async function refreshLoraManagerAvailability() {
@@ -3539,9 +3870,10 @@ async function addLorasFromPasteText() {
   let added = 0;
   let skipped = 0;
   const missing = [];
+  let entries = [...getLoraPickerEntries()];
   try {
     for (const tag of tags) {
-      if (state.detailLoraEntries.some((candidate) => candidate.name.toLowerCase() === tag.name.toLowerCase())) {
+      if (entries.some((candidate) => candidate.name.toLowerCase() === tag.name.toLowerCase())) {
         skipped += 1;
         continue;
       }
@@ -3551,16 +3883,13 @@ async function addLorasFromPasteText() {
           missing.push(tag.name);
           continue;
         }
-        state.detailLoraEntries = [...state.detailLoraEntries, entry];
+        entries = [...entries, entry];
         added += 1;
       } catch (_) {
         missing.push(tag.name);
       }
     }
-    if (added) {
-      renderDetailLoraList();
-      updateDetailEditControls();
-    }
+    if (added) commitLoraPickerEntries(entries);
     const missingText = missing.join(", ");
     let message = "";
     if (added && (skipped || missing.length)) {
@@ -3625,16 +3954,15 @@ async function confirmLoraPickerAdd() {
   if (!item) return;
   try {
     const entry = await pickLoraFromManagerItem(item, $("lora-picker-strength").value);
-    const exists = state.detailLoraEntries.some(
+    const entries = getLoraPickerEntries();
+    const exists = entries.some(
       (candidate) => candidate.name.toLowerCase() === entry.name.toLowerCase(),
     );
     if (exists) {
       toast(t("已添加过同名 LoRA"), "error");
       return;
     }
-    state.detailLoraEntries = [...state.detailLoraEntries, entry];
-    renderDetailLoraList();
-    updateDetailEditControls();
+    commitLoraPickerEntries([...entries, entry]);
     closeLoraPicker();
   } catch (error) {
     toast(t("添加失败：{error}", { error: error.message || error }), "error");
@@ -3663,10 +3991,10 @@ async function renderLoraPickerResults(query) {
       button.setAttribute("role", "option");
       const name = document.createElement("span");
       name.className = "lora-picker-result-name";
-      name.textContent = item.name;
+      name.textContent = item.modelTitle || item.name;
       const meta = document.createElement("span");
       meta.className = "lora-picker-result-meta";
-      meta.textContent = [item.fileName, item.hash].filter(Boolean).join(" · ");
+      meta.textContent = [item.fileName || item.name, item.hash].filter(Boolean).join(" · ");
       button.append(name, meta);
       button.addEventListener("click", () => {
         void selectLoraPickerItem(item, button);
@@ -3679,13 +4007,16 @@ async function renderLoraPickerResults(query) {
   }
 }
 
-async function openLoraPicker() {
-  if (!state.selected || state.selected.capabilities?.lora === false) return;
+async function openLoraPicker(target = "detail") {
+  if (target === "detail" && (!state.selected || state.selected.capabilities?.lora === false)) {
+    return;
+  }
   const available = await refreshLoraManagerAvailability();
   if (!available) {
     toast(t("需要安装 LoraManager 才能添加"), "error");
     return;
   }
+  state.loraPickerTarget = target === "create" ? "create" : "detail";
   clearLoraPickerSelection();
   $("lora-picker-modal").hidden = false;
   $("lora-picker-search").focus();
@@ -3701,6 +4032,15 @@ function renderInspectorEntry(entry, cacheBust = false) {
   $("detail-note").textContent = entry.note || "";
   state.detailLoraEntries = isTxt ? [] : parseLoraEntries(entry.lora || emptyLoraPayload());
   renderDetailLoraList();
+  applySettingsDraftToDetail(
+    isTxt
+      ? emptyCardSettings()
+      : {
+        models: entry.models || [],
+        parameters: entry.parameters || {},
+        double_sample_parameters: entry.double_sample_parameters || {},
+      },
+  );
   void refreshLoraManagerAvailability();
   const badge = $("detail-format-badge");
   badge.hidden = !isTxt;
@@ -3722,6 +4062,7 @@ function renderInspectorEntry(entry, cacheBust = false) {
     : "";
   $("detail-negative-panel").hidden = isTxt;
   $("detail-lora-panel").hidden = isTxt;
+  $("detail-settings-panel").hidden = isTxt;
   $("detail-note-panel").hidden = isTxt;
   $("detail-open-txt").hidden = !isTxt;
   $("detail-reveal-txt").hidden = !isTxt;
@@ -3977,6 +4318,92 @@ function populateSimpleSelect(select, values, selectedValue, emptyLabel = t("暂
   }
   select.disabled = false;
   select.value = choices.includes(selectedValue) ? selectedValue : choices[0];
+}
+
+function populateOptionalSelect(select, values, selectedValue = "", emptyLabel = t("未设置")) {
+  if (!select) return;
+  const current = selectedValue == null ? "" : String(selectedValue);
+  const choices = Array.isArray(values) ? values.map(String) : [];
+  select.innerHTML = "";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = emptyLabel;
+  select.appendChild(empty);
+  for (const value of choices) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  }
+  if (current && !choices.includes(current)) {
+    const option = document.createElement("option");
+    option.value = current;
+    option.textContent = current;
+    select.appendChild(option);
+  }
+  select.disabled = false;
+  select.value = current || "";
+}
+
+async function ensureCardSettingsOptions() {
+  try {
+    const config = await loadGenerationConfig();
+    const options = config?.options || {};
+    const samplers = options.samplers || [];
+    const schedulers = options.schedulers || [];
+    const models = options.models || [];
+    for (const [rootId, kind] of [
+      ["add-parameters-form", "param"],
+      ["detail-parameters-form", "param"],
+      ["add-double-form", "double"],
+      ["detail-double-form", "double"],
+    ]) {
+      const root = $(rootId);
+      if (!root) continue;
+      const attr = kind === "double" ? "data-double" : "data-param";
+      for (const [key, list] of [
+        ["sampler", samplers],
+        ["scheduler", schedulers],
+      ]) {
+        const select = root.querySelector(`[${attr}="${key}"]`);
+        if (!select || select.tagName !== "SELECT") continue;
+        populateOptionalSelect(select, list, select.value, t("未设置"));
+      }
+    }
+    for (const id of ["add-base-model", "detail-base-model"]) {
+      const select = $(id);
+      if (!select) continue;
+      populateOptionalSelect(select, models, select.value, t("选择基础模型"));
+      if (!models.length) select.disabled = true;
+    }
+  } catch (error) {
+    console.warn("[4A Prompt Manager] Failed to load generation options", error);
+  }
+}
+
+async function addBaseModelFromSelect(selectId, target) {
+  const select = $(selectId);
+  const name = String(select?.value || "").trim();
+  if (!name) {
+    toast(t("请选择基础模型"), "error");
+    return;
+  }
+  const type = "基础模型";
+  const models = target === "detail" ? state.detailModels : state.createModels;
+  if (models.some((entry) => String(entry.type).toLowerCase() === type.toLowerCase())) {
+    toast(t("已存在相同类型的模型"), "error");
+    return;
+  }
+  const [entry] = await alignModelsToLocal([{ type, name }]);
+  const next = [...models, entry || { type, name }];
+  if (target === "detail") {
+    state.detailModels = next;
+    renderDetailModelsList();
+    updateDetailEditControls();
+  } else {
+    state.createModels = next;
+    renderCreateModelsList();
+  }
 }
 
 async function loadGenerationConfig(force = false) {
@@ -5092,9 +5519,94 @@ function setupEventHandlers() {
       toast(t("提示词库已刷新"), "success");
     } catch (error) {
       toast(t("刷新失败：{error}", { error: error.message || error }), "error");
-    } finally {
       button.disabled = false;
       button.classList.remove("reloading");
+      return;
+    }
+    button.classList.remove("reloading");
+
+    let preview = null;
+    showOperationProgress("align-scan", 0, t("正在扫描可对齐的模型…"));
+    try {
+      preview = await api("/pm4a/api/models/align/preview", {
+        method: "POST",
+        body: "{}",
+      });
+    } catch (error) {
+      hideOperationProgress();
+      toast(
+        t("扫描本地模型对齐失败：{error}", { error: error.message || error }),
+        "error",
+      );
+      button.disabled = false;
+      return;
+    }
+    hideOperationProgress();
+
+    const items = Array.isArray(preview?.items) ? preview.items : [];
+    const count = Number(preview?.count) || items.length;
+    if (!count) {
+      button.disabled = false;
+      return;
+    }
+
+    const examples = items
+      .slice(0, 5)
+      .map((item) => item.path || item.key)
+      .filter(Boolean)
+      .join("、");
+    const message = examples
+      ? t(
+        "发现 {count} 张卡片的模型可对齐到本地（替换名称并补齐完整 sha256）。例如：{examples}。是否写回 JSON？",
+        { count, examples },
+      )
+      : t(
+        "发现 {count} 张卡片的模型可对齐到本地（替换名称并补齐完整 sha256）。是否写回 JSON？",
+        { count },
+      );
+    const confirmed = await openConfirmModal({
+      title: t("对齐本地模型"),
+      message,
+      confirmLabel: t("对齐并写回"),
+      danger: false,
+    });
+    if (!confirmed) {
+      button.disabled = false;
+      return;
+    }
+
+    closeDetailModal({ restoreFocus: false });
+    clearInspector();
+    showOperationProgress("align-apply", count, t("正在对齐并写回 JSON…"));
+    const progressId = createProgressId();
+    const stopProgressPolling = startOperationProgressPolling(progressId);
+    try {
+      const result = await api("/pm4a/api/models/align/apply", {
+        method: "POST",
+        body: JSON.stringify({
+          keys: items.map((item) => item.key),
+          progress_id: progressId,
+        }),
+      });
+      showOperationRefreshProgress(count, t("写回完成，正在同步列表"));
+      state.entryCache.clear();
+      await resetAndLoadList();
+      const updated = Number(result?.updated) || 0;
+      const failed = Number(result?.failed) || 0;
+      if (failed) {
+        toast(t("已对齐 {updated} 张，失败 {failed} 张", { updated, failed }), "error");
+      } else {
+        toast(t("已对齐并写回 {updated} 张卡片", { updated }), "success");
+      }
+    } catch (error) {
+      toast(
+        t("写回本地模型对齐失败：{error}", { error: error.message || error }),
+        "error",
+      );
+    } finally {
+      stopProgressPolling();
+      hideOperationProgress();
+      button.disabled = false;
     }
   });
 
@@ -5154,6 +5666,48 @@ function setupEventHandlers() {
     input.value = "";
   });
   $("detail-save").addEventListener("click", saveDetailEdits);
+  populateRatioHelper();
+  $("detail-add-model")?.addEventListener("click", () => {
+    addBaseModelFromSelect("detail-base-model", "detail");
+  });
+  $("detail-apply-ratio")?.addEventListener("click", applyRatioHelperToDetail);
+  $("detail-load-settings-from-image")?.addEventListener("click", () => {
+    $("detail-settings-image-input").click();
+  });
+  $("detail-settings-image-input")?.addEventListener("change", async () => {
+    const input = $("detail-settings-image-input");
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    try {
+      const loaded = await loadSettingsFromImageFile(file, "detail");
+      if (loaded) toast(t("已从图片加载生成设置"), "success");
+    } catch (error) {
+      toast(t("加载生成设置失败：{error}", { error: error.message || error }), "error");
+    }
+  });
+  $("add-add-model")?.addEventListener("click", () => {
+    addBaseModelFromSelect("add-base-model", "create");
+  });
+  $("add-prompt-add-lora")?.addEventListener("click", () => {
+    void openLoraPicker("create");
+  });
+  $("add-prompt-load-settings")?.addEventListener("click", async () => {
+    if (!state.createImage) {
+      setCreateImageStatus(t("请先拖入或选择示例图"), "error");
+      toast(t("请先拖入或选择示例图"), "error");
+      return;
+    }
+    try {
+      const loaded = await loadSettingsFromImageFile(state.createImage, "create");
+      if (loaded) setCreateImageStatus(t("已从图片加载生成设置"), "success");
+    } catch (error) {
+      setCreateImageStatus(t("加载生成设置失败：{error}", { error: error.message || error }), "error");
+    }
+  });
+  ["detail-parameters-form", "detail-double-form"].forEach((id) => {
+    $(id)?.addEventListener("input", () => updateDetailEditControls());
+  });
   $("detail-title-input").addEventListener("input", () => {
     resizeDetailTitleInput();
     updateDetailEditControls();
@@ -5188,9 +5742,14 @@ function setupEventHandlers() {
       }
     });
   });
-  document.querySelectorAll("#detail-inspector .inspector-send-button").forEach((button) => {
+  document.querySelectorAll("#detail-inspector .inspector-send-button[data-slot]").forEach((button) => {
     button.addEventListener("click", () => {
       if (state.selected) sendByKey(state.selected.key, button.dataset.slot, button);
+    });
+  });
+  document.querySelectorAll("#detail-inspector .inspector-send-button[data-apply]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void sendSettingsApply(button.dataset.apply, button);
     });
   });
 

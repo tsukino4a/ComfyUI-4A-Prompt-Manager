@@ -40,6 +40,8 @@ from .routes_library import (
     handle_import_txt,
     handle_import_txt_preview,
     handle_list,
+    handle_models_align_apply,
+    handle_models_align_preview,
     handle_open_txt_entry,
     handle_operate_entries,
     handle_reload,
@@ -57,6 +59,7 @@ from .routes_tools import (
     handle_scheduler_counts,
     handle_scheduler_lora_plan,
     handle_scheduler_prepare,
+    handle_settings_apply,
 )
 
 
@@ -66,6 +69,8 @@ logger = logging.getLogger("ComfyUI4APromptManager")
 _API_ROUTES = (
     ("GET", "/pm4a/api/tree", handle_tree),
     ("POST", "/pm4a/api/reload", handle_reload),
+    ("POST", "/pm4a/api/models/align/preview", handle_models_align_preview),
+    ("POST", "/pm4a/api/models/align/apply", handle_models_align_apply),
     ("GET", "/pm4a/api/list", handle_list),
     ("GET", "/pm4a/api/entry", handle_entry),
     ("POST", "/pm4a/api/entry", handle_update_entry),
@@ -105,6 +110,7 @@ _API_ROUTES = (
     ("POST", "/pm4a/api/scheduler/prepare", handle_scheduler_prepare),
     ("POST", "/pm4a/api/scheduler/lora-plan", handle_scheduler_lora_plan),
     ("POST", "/pm4a/api/append-slot", handle_append_slot),
+    ("POST", "/pm4a/api/settings/apply", handle_settings_apply),
     ("POST", "/pm4a/api/model/resolve", handle_model_resolve),
     ("POST", "/pm4a/api/lora/resolve", handle_lora_resolve),
     ("GET", "/pm4a/api/generation/config", handle_generation_config),

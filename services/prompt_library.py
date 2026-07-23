@@ -14,7 +14,10 @@ from typing import Any, Callable, Iterable, Optional
 
 try:
     from ..domain import wildcard_syntax
-    from ..integrations.comfyui.model_resolver import remap_lora_payload
+    from ..integrations.comfyui.model_resolver import (
+        align_models_list,
+        remap_lora_payload,
+    )
     from ..storage import library_metadata as metadata
     from ..storage.prompt_documents import (
         IMAGE_EXTS,
@@ -27,11 +30,20 @@ try:
         _read_json_prompt,
         _read_txt_content,
         _write_txt_wildcard,
+        card_settings_from_document,
+        empty_card_settings,
         empty_lora_payload,
+        empty_double_sample_payload,
+        empty_models_payload,
+        empty_parameters_payload,
+        normalize_double_sample_payload,
         normalize_lora_payload,
+        normalize_models_payload,
+        normalize_parameters_payload,
         parse_txt_options,
         read_prompt_document,
         read_txt_text,
+        settings_nonempty,
         _rename_case_safe,
         _validated_entry_name,
         _validated_folder_name,
@@ -50,7 +62,10 @@ try:
     )
 except ImportError:  # standalone preview
     from domain import wildcard_syntax  # type: ignore
-    from integrations.comfyui.model_resolver import remap_lora_payload  # type: ignore
+    from integrations.comfyui.model_resolver import (  # type: ignore
+        align_models_list,
+        remap_lora_payload,
+    )
     from storage import library_metadata as metadata  # type: ignore
     from storage.prompt_documents import (  # type: ignore
         IMAGE_EXTS,
@@ -63,11 +78,20 @@ except ImportError:  # standalone preview
         _read_json_prompt,
         _read_txt_content,
         _write_txt_wildcard,
+        card_settings_from_document,
+        empty_card_settings,
         empty_lora_payload,
+        empty_double_sample_payload,
+        empty_models_payload,
+        empty_parameters_payload,
+        normalize_double_sample_payload,
         normalize_lora_payload,
+        normalize_models_payload,
+        normalize_parameters_payload,
         parse_txt_options,
         read_prompt_document,
         read_txt_text,
+        settings_nonempty,
         _rename_case_safe,
         _validated_entry_name,
         _validated_folder_name,
@@ -101,6 +125,7 @@ _display_paths: dict[str, str] = {}
 _negative_dict: dict[str, str] = {}
 _note_dict: dict[str, str] = {}
 _lora_dict: dict[str, dict[str, Any]] = {}
+_settings_dict: dict[str, dict[str, Any]] = {}
 _folder_display_paths: dict[str, str] = {}
 _conflict_keys: tuple[str, ...] = ()
 _loaded_root: Optional[Path] = None
@@ -123,9 +148,36 @@ def _entry_capabilities(entry_format: str) -> dict[str, bool]:
         "negative": not is_txt,
         "note": not is_txt,
         "lora": not is_txt,
+        "models": not is_txt,
+        "parameters": not is_txt,
+        "double_sample_parameters": not is_txt,
         "image": True,
         "generation": not is_txt,
         "external_edit": is_txt,
+    }
+
+
+def _copy_settings(value: Optional[dict[str, Any]]) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else empty_card_settings()
+    return {
+        "models": [dict(entry) for entry in (source.get("models") or [])],
+        "parameters": dict(source.get("parameters") or {}),
+        "double_sample_parameters": dict(source.get("double_sample_parameters") or {}),
+    }
+
+
+def _normalize_card_settings(
+    *,
+    models: Any = None,
+    parameters: Any = None,
+    double_sample_parameters: Any = None,
+) -> dict[str, Any]:
+    return {
+        "models": normalize_models_payload(models),
+        "parameters": normalize_parameters_payload(parameters),
+        "double_sample_parameters": normalize_double_sample_payload(
+            double_sample_parameters
+        ),
     }
 
 
@@ -199,7 +251,7 @@ def _build_folder_indexes(
 def reload(root: Optional[Path] = None) -> None:
     """Scan wildcards directory into file and folder dictionaries."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _lora_dict
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
     global _folder_display_paths, _conflict_keys, _loaded_root
 
     root = Path(root) if root is not None else get_wildcards_path()
@@ -209,6 +261,7 @@ def reload(root: Optional[Path] = None) -> None:
     negative_dict: dict[str, str] = {}
     note_dict: dict[str, str] = {}
     lora_dict: dict[str, dict[str, Any]] = {}
+    settings_dict: dict[str, dict[str, Any]] = {}
 
     if not root.is_dir():
         logger.warning("Wildcards root does not exist: %s", root)
@@ -220,6 +273,7 @@ def reload(root: Optional[Path] = None) -> None:
             _negative_dict = {}
             _note_dict = {}
             _lora_dict = {}
+            _settings_dict = {}
             _folder_display_paths = {}
             _conflict_keys = ()
             _loaded_root = root
@@ -253,6 +307,7 @@ def reload(root: Optional[Path] = None) -> None:
         negative_dict[key] = ""
         note_dict[key] = ""
         lora_dict[key] = empty_lora_payload()
+        settings_dict[key] = empty_card_settings()
 
     conflict_keys: set[str] = set()
     # JSON and TXT with the same logical key are ambiguous and neither is indexed.
@@ -279,6 +334,7 @@ def reload(root: Optional[Path] = None) -> None:
             negative_dict.pop(key, None)
             note_dict.pop(key, None)
             lora_dict.pop(key, None)
+            settings_dict.pop(key, None)
             logger.error(
                 "Conflicting TXT and JSON prompt documents share key %s", key
             )
@@ -294,6 +350,7 @@ def reload(root: Optional[Path] = None) -> None:
         negative_dict[key] = document.negative
         note_dict[key] = document.note
         lora_dict[key] = dict(document.lora)
+        settings_dict[key] = card_settings_from_document(document)
 
     try:
         metadata.reconcile_entries(
@@ -321,6 +378,7 @@ def reload(root: Optional[Path] = None) -> None:
         _negative_dict = negative_dict
         _note_dict = note_dict
         _lora_dict = lora_dict
+        _settings_dict = settings_dict
         _folder_display_paths = folder_display_paths
         _conflict_keys = tuple(sorted(conflict_keys))
         _loaded_root = root
@@ -351,6 +409,7 @@ def snapshot_resolver() -> LibraryWildcardResolver:
             _negative_dict,
             _display_paths,
             _lora_dict,
+            _settings_dict,
         )
 
 
@@ -431,7 +490,8 @@ def create_folder(parent: str, name: str) -> dict:
 def rename_folder(folder: str, name: str) -> dict:
     """Rename one indexed folder while preserving prompt metadata and keys."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _lora_dict, _folder_display_paths
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
+    global _folder_display_paths
 
     ensure_loaded()
     folder_key = normalize_key(folder)
@@ -472,6 +532,7 @@ def rename_folder(folder: str, name: str) -> dict:
         updated_negative_dict: dict[str, str] = {}
         updated_note_dict: dict[str, str] = {}
         updated_lora_dict: dict[str, dict[str, Any]] = {}
+        updated_settings_dict: dict[str, dict[str, Any]] = {}
         key_moves: dict[str, str] = {}
         source_prefix = folder_key + "/"
 
@@ -500,6 +561,10 @@ def rename_folder(folder: str, name: str) -> dict:
                 updated_note_dict[next_key] = _note_dict[current_key]
             if current_key in _lora_dict:
                 updated_lora_dict[next_key] = dict(_lora_dict[current_key])
+            if current_key in _settings_dict:
+                updated_settings_dict[next_key] = _copy_settings(
+                    _settings_dict[current_key]
+                )
 
         renamed = False
         try:
@@ -521,6 +586,7 @@ def rename_folder(folder: str, name: str) -> dict:
         _negative_dict = updated_negative_dict
         _note_dict = updated_note_dict
         _lora_dict = updated_lora_dict
+        _settings_dict = updated_settings_dict
         _folder_dict = updated_folder_dict
         _folder_display_paths = updated_folder_display_paths
 
@@ -556,6 +622,9 @@ def create_entry(
     negative: str = "",
     note: str = "",
     lora: Optional[dict[str, Any]] = None,
+    models: Optional[list[dict[str, Any]]] = None,
+    parameters: Optional[dict[str, Any]] = None,
+    double_sample_parameters: Optional[dict[str, Any]] = None,
 ) -> dict:
     """Create a JSON prompt inside an existing folder without overwriting."""
     ensure_loaded()
@@ -566,6 +635,11 @@ def create_entry(
     normalized_negative = _normalize_optional_prompt(negative)
     normalized_note = note.strip()
     normalized_lora = normalize_lora_payload(lora, require_hashes_when_text=True)
+    normalized_settings = _normalize_card_settings(
+        models=models,
+        parameters=parameters,
+        double_sample_parameters=double_sample_parameters,
+    )
 
     with _lock:
         folder_path, folder_key, folder_display = _resolve_folder_path_locked(folder)
@@ -579,6 +653,9 @@ def create_entry(
             negative=normalized_negative,
             note=normalized_note,
             lora=normalized_lora,
+            models=normalized_settings["models"],
+            parameters=normalized_settings["parameters"],
+            double_sample_parameters=normalized_settings["double_sample_parameters"],
         )
         display_path = f"{folder_display}/{entry_name}" if folder_display else entry_name
         root = Path(_loaded_root or get_wildcards_path())
@@ -588,6 +665,7 @@ def create_entry(
         _negative_dict[target_key] = normalized_negative
         _note_dict[target_key] = normalized_note
         _lora_dict[target_key] = normalized_lora
+        _settings_dict[target_key] = normalized_settings
 
         root_options = _folder_dict.setdefault(ROOT_WILDCARD_KEY, [])
         if normalized_content not in root_options:
@@ -676,6 +754,17 @@ def export_prompt_bundle(
                         )
                         else {"lora": dict(_lora_dict.get(key) or empty_lora_payload())}
                     ),
+                    **(
+                        {}
+                        if is_txt or not settings_nonempty(_settings_dict.get(key))
+                        else {
+                            key_name: value
+                            for key_name, value in _copy_settings(
+                                _settings_dict.get(key)
+                            ).items()
+                            if value
+                        }
+                    ),
                 }
             )
             if progress_callback:
@@ -730,6 +819,9 @@ def _validated_import_document(
     negative = raw.get("negative", "")
     note = raw.get("note", "")
     lora_raw = raw.get("lora")
+    models_raw = raw.get("models")
+    parameters_raw = raw.get("parameters")
+    double_sample_raw = raw.get("double_sample_parameters")
     if not isinstance(content, str):
         raise ValueError(
             tr("第 {index} 条提示词的 content 必须是字符串", index=index)
@@ -748,9 +840,18 @@ def _validated_import_document(
             if storage == "txt"
             else normalize_lora_payload(lora_raw, require_hashes_when_text=True)
         )
+        normalized_settings = (
+            empty_card_settings()
+            if storage == "txt"
+            else _normalize_card_settings(
+                models=models_raw,
+                parameters=parameters_raw,
+                double_sample_parameters=double_sample_raw,
+            )
+        )
     except ValueError as exc:
         raise ValueError(
-            tr("第 {index} 条提示词的 lora 无效：{error}", index=index, error=exc)
+            tr("第 {index} 条提示词的生成设置无效：{error}", index=index, error=exc)
         ) from exc
     if storage != "txt" and (normalized_lora.get("text") or normalized_lora.get("hashes")):
         # Same strategy as Meta Apply model resolve: local name first, then hash.
@@ -763,10 +864,15 @@ def _validated_import_document(
         except Exception as exc:
             logger.warning("LoRA remap skipped for import item %s: %s", index, exc)
     if storage == "txt":
-        if negative.strip() or note.strip() or (lora_raw not in (None, "", {})):
+        has_settings = (
+            models_raw not in (None, "", [])
+            or parameters_raw not in (None, "", {})
+            or double_sample_raw not in (None, "", {})
+        )
+        if negative.strip() or note.strip() or (lora_raw not in (None, "", {})) or has_settings:
             raise ValueError(
                 tr(
-                    "第 {index} 条 TXT Wildcard 不支持 negative、note 或 lora",
+                    "第 {index} 条 TXT Wildcard 不支持 negative、note、lora 或生成设置",
                     index=index,
                 )
             )
@@ -783,6 +889,9 @@ def _validated_import_document(
         "negative": "" if storage == "txt" else _normalize_optional_prompt(negative),
         "note": "" if storage == "txt" else note.strip(),
         "lora": normalized_lora,
+        "models": normalized_settings["models"],
+        "parameters": normalized_settings["parameters"],
+        "double_sample_parameters": normalized_settings["double_sample_parameters"],
         "metadata": _validated_import_metadata(raw.get("metadata"), index),
     }
 
@@ -960,6 +1069,12 @@ def import_prompt_bundle(
                         negative=item["negative"],
                         note=item["note"],
                         lora=item.get("lora") or empty_lora_payload(),
+                        models=item.get("models") or empty_models_payload(),
+                        parameters=item.get("parameters") or empty_parameters_payload(),
+                        double_sample_parameters=(
+                            item.get("double_sample_parameters")
+                            or empty_double_sample_payload()
+                        ),
                     )
                 created_files.append(target)
                 if progress_callback:
@@ -1316,7 +1431,8 @@ def operate_items(
 ) -> dict:
     """Delete, copy, or move indexed entries without rescanning the library."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _lora_dict, _folder_display_paths
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
+    global _folder_display_paths
 
     ensure_loaded()
     if action not in {"delete", "copy", "move"}:
@@ -1379,6 +1495,9 @@ def operate_items(
         original_negative_dict = dict(_negative_dict)
         original_note_dict = dict(_note_dict)
         original_lora_dict = dict(_lora_dict)
+        original_settings_dict = {
+            key: _copy_settings(value) for key, value in _settings_dict.items()
+        }
         original_folder_displays = dict(_folder_display_paths)
         indexed_paths = {_path_identity(path): key for key, path in original_file_paths.items()}
         reserved_targets: set[str] = set()
@@ -1515,6 +1634,9 @@ def operate_items(
         next_lora_dict = {
             key: dict(value) for key, value in original_lora_dict.items()
         }
+        next_settings_dict = {
+            key: _copy_settings(value) for key, value in original_settings_dict.items()
+        }
         key_moves: dict[str, str] = {}
         key_copies: dict[str, str] = {}
         deleted_keys: set[str] = set()
@@ -1527,6 +1649,7 @@ def operate_items(
                 next_negative_dict.pop(old_key, None)
                 next_note_dict.pop(old_key, None)
                 next_lora_dict.pop(old_key, None)
+                next_settings_dict.pop(old_key, None)
             if action == "delete" or target_path is None:
                 deleted_keys.add(old_key)
                 return
@@ -1538,6 +1661,9 @@ def operate_items(
             next_note_dict[new_key] = original_note_dict.get(old_key, "")
             next_lora_dict[new_key] = dict(
                 original_lora_dict.get(old_key) or empty_lora_payload()
+            )
+            next_settings_dict[new_key] = _copy_settings(
+                original_settings_dict.get(old_key)
             )
             if action == "move":
                 key_moves[old_key] = new_key
@@ -1599,6 +1725,7 @@ def operate_items(
         _negative_dict = next_negative_dict
         _note_dict = next_note_dict
         _lora_dict = next_lora_dict
+        _settings_dict = next_settings_dict
         _folder_dict = next_folder_dict
         _folder_display_paths = next_folder_displays
 
@@ -1756,6 +1883,24 @@ def get_entry(key: str) -> Optional[dict]:
                     if is_txt
                     else dict(_lora_dict.get(n) or empty_lora_payload())
                 ),
+                "models": (
+                    empty_models_payload()
+                    if is_txt
+                    else list((_settings_dict.get(n) or {}).get("models") or [])
+                ),
+                "parameters": (
+                    empty_parameters_payload()
+                    if is_txt
+                    else dict((_settings_dict.get(n) or {}).get("parameters") or {})
+                ),
+                "double_sample_parameters": (
+                    empty_double_sample_payload()
+                    if is_txt
+                    else dict(
+                        (_settings_dict.get(n) or {}).get("double_sample_parameters")
+                        or {}
+                    )
+                ),
                 "lines": list(preview_options),
                 "truncated": is_txt and len(options) > len(preview_options),
                 "capabilities": _entry_capabilities(entry_format),
@@ -1816,14 +1961,19 @@ def _update_json_entry_locked(
     negative: Optional[str],
     note: Optional[str],
     lora: Optional[dict[str, Any]],
+    models: Optional[list[dict[str, Any]]],
+    parameters: Optional[dict[str, Any]],
+    double_sample_parameters: Optional[dict[str, Any]],
 ) -> dict:
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _lora_dict, _folder_display_paths
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
+    global _folder_display_paths
 
     current_content = _file_dict[normalized_key][0]
     current_negative = _negative_dict.get(normalized_key, "")
     current_note = _note_dict.get(normalized_key, "")
     current_lora = dict(_lora_dict.get(normalized_key) or empty_lora_payload())
+    current_settings = _copy_settings(_settings_dict.get(normalized_key))
     next_content = _normalize_txt_text(content) if content is not None else current_content
     if content is not None and not next_content:
         raise ValueError(tr("提示词内容不能为空"))
@@ -1836,6 +1986,23 @@ def _update_json_entry_locked(
         if lora is not None
         else current_lora
     )
+    next_settings = {
+        "models": (
+            normalize_models_payload(models)
+            if models is not None
+            else list(current_settings["models"])
+        ),
+        "parameters": (
+            normalize_parameters_payload(parameters)
+            if parameters is not None
+            else dict(current_settings["parameters"])
+        ),
+        "double_sample_parameters": (
+            normalize_double_sample_payload(double_sample_parameters)
+            if double_sample_parameters is not None
+            else dict(current_settings["double_sample_parameters"])
+        ),
+    }
 
     target_name = _validated_entry_name(name) if name is not None else source_path.stem
     target_path = source_path.with_name(f"{target_name}.json")
@@ -1861,6 +2028,9 @@ def _update_json_entry_locked(
     updated_negative_dict = dict(_negative_dict)
     updated_note_dict = dict(_note_dict)
     updated_lora_dict = {key: dict(value) for key, value in _lora_dict.items()}
+    updated_settings_dict = {
+        key: _copy_settings(value) for key, value in _settings_dict.items()
+    }
     if target_key != normalized_key:
         updated_file_dict.pop(normalized_key, None)
         updated_file_paths.pop(normalized_key, None)
@@ -1868,12 +2038,14 @@ def _update_json_entry_locked(
         updated_negative_dict.pop(normalized_key, None)
         updated_note_dict.pop(normalized_key, None)
         updated_lora_dict.pop(normalized_key, None)
+        updated_settings_dict.pop(normalized_key, None)
     updated_file_dict[target_key] = [next_content]
     updated_file_paths[target_key] = target_path
     updated_display_paths[target_key] = display_path
     updated_negative_dict[target_key] = next_negative
     updated_note_dict[target_key] = next_note
     updated_lora_dict[target_key] = next_lora
+    updated_settings_dict[target_key] = next_settings
     updated_folder_dict, updated_folder_display_paths = _build_folder_indexes(
         updated_file_dict, updated_display_paths, root
     )
@@ -1883,6 +2055,7 @@ def _update_json_entry_locked(
         or next_negative != current_negative
         or next_note != current_note
         or next_lora != current_lora
+        or next_settings != current_settings
     )
     if fields_changed:
         metadata.archive_files(
@@ -1905,6 +2078,9 @@ def _update_json_entry_locked(
                 negative=next_negative,
                 note=next_note,
                 lora=next_lora,
+                models=next_settings["models"],
+                parameters=next_settings["parameters"],
+                double_sample_parameters=next_settings["double_sample_parameters"],
             )
     except Exception:
         for current, original in reversed(renamed):
@@ -1918,6 +2094,7 @@ def _update_json_entry_locked(
     _negative_dict = updated_negative_dict
     _note_dict = updated_note_dict
     _lora_dict = updated_lora_dict
+    _settings_dict = updated_settings_dict
     _folder_dict = updated_folder_dict
     _folder_display_paths = updated_folder_display_paths
     try:
@@ -1936,6 +2113,81 @@ def _update_json_entry_locked(
     return entry
 
 
+def preview_local_model_alignments() -> dict[str, Any]:
+    """Scan JSON cards for models that can be rewritten to local name + full sha256."""
+    ensure_loaded()
+    items: list[dict[str, Any]] = []
+    with _lock:
+        for key, settings in _settings_dict.items():
+            path = _file_paths.get(key)
+            if not path or path.suffix.casefold() != ".json":
+                continue
+            models = list((settings or {}).get("models") or [])
+            if not models:
+                continue
+            before = normalize_models_payload(models)
+            if not before:
+                continue
+            try:
+                after = normalize_models_payload(align_models_list(before))
+            except Exception:
+                logger.exception("model align preview failed for %s", key)
+                continue
+            if before == after:
+                continue
+            items.append(
+                {
+                    "key": key,
+                    "path": _display_paths.get(key, key),
+                    "before": before,
+                    "after": after,
+                }
+            )
+    items.sort(key=lambda item: str(item.get("path") or item.get("key") or ""))
+    return {"count": len(items), "items": items}
+
+
+def apply_local_model_alignments(
+    keys: Optional[Iterable[str]] = None,
+    progress: Optional[ProgressCallback] = None,
+) -> dict[str, Any]:
+    """Rewrite confirmed cards' models to local stem + full sha256."""
+    preview = preview_local_model_alignments()
+    candidates = list(preview.get("items") or [])
+    if keys is not None:
+        wanted = {normalize_key(key) for key in keys if str(key or "").strip()}
+        candidates = [item for item in candidates if item.get("key") in wanted]
+
+    total = len(candidates)
+    if progress is not None:
+        progress(0, total, tr("正在对齐本地模型"))
+
+    updated = 0
+    errors: list[dict[str, str]] = []
+    for index, item in enumerate(candidates, start=1):
+        key = str(item.get("key") or "")
+        after = item.get("after")
+        display = str(item.get("path") or key)
+        if not key or not isinstance(after, list):
+            if progress is not None:
+                progress(index, total, tr("正在写回 {path}", path=display))
+            continue
+        try:
+            update_entry(key, models=after)
+            updated += 1
+        except Exception as exc:
+            logger.exception("model align apply failed for %s", key)
+            errors.append({"key": key, "error": str(exc)})
+        if progress is not None:
+            progress(index, total, tr("正在写回 {path}", path=display))
+    return {
+        "updated": updated,
+        "failed": len(errors),
+        "errors": errors,
+        "count": len(candidates),
+    }
+
+
 def update_entry(
     key: str,
     *,
@@ -1944,6 +2196,9 @@ def update_entry(
     negative: Optional[str] = None,
     note: Optional[str] = None,
     lora: Optional[dict[str, Any]] = None,
+    models: Optional[list[dict[str, Any]]] = None,
+    parameters: Optional[dict[str, Any]] = None,
+    double_sample_parameters: Optional[dict[str, Any]] = None,
 ) -> dict:
     """Update a prompt file and optionally rename its sidecar previews."""
     global _file_dict, _folder_dict, _file_paths
@@ -1957,6 +2212,9 @@ def update_entry(
         and negative is None
         and note is None
         and lora is None
+        and models is None
+        and parameters is None
+        and double_sample_parameters is None
     ):
         raise ValueError(tr("没有可保存的修改"))
 
@@ -1975,8 +2233,19 @@ def update_entry(
                 negative=negative,
                 note=note,
                 lora=lora,
+                models=models,
+                parameters=parameters,
+                double_sample_parameters=double_sample_parameters,
             )
-        if content is not None or negative is not None or note is not None or lora is not None:
+        if (
+            content is not None
+            or negative is not None
+            or note is not None
+            or lora is not None
+            or models is not None
+            or parameters is not None
+            or double_sample_parameters is not None
+        ):
             raise ValueError(tr("TXT Wildcard 内容只能使用外部文本编辑器修改"))
 
         target_name = _validated_entry_name(name) if name is not None else source_path.stem

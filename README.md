@@ -16,9 +16,9 @@ A full, easy-to-use library UI. Prompts live as a normal folder tree (JSON cards
 
 ![Browser](docs/images/browser.png)
 
-### JSON card LoRAs + wildcard auto-embed LoRA
+### JSON card LoRAs / generation settings + wildcard auto-apply
 
-JSON cards can store LoRAs (pick via [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager); paste `<lora:name:strength>` tags to batch-add exact matches). When a Scheduler track resolves cards through wildcard syntax (e.g. `__path__`), turn on **Auto-embed Wildcard LoRAs** to append those LoRAs to the Lora Loader before queueing (skip names already present). Only cards reached via wildcards are embedded — plain fixed text is not. With auto-embed on, **Group same LoRAs** queues batch jobs that share the same LoRA stack together so ComfyUI spends less time reloading models when the stack changes.
+JSON cards can sparsely store LoRAs, models, sampler settings (including seed/size), and double-sample settings. Empty fields are omitted from JSON; presence of a double-sample block means second pass ON (no separate enable flag). When Scheduler tracks resolve those cards via wildcard syntax, enable **Auto-embed Wildcard LoRAs** and/or **Auto-apply models / inference parameters** to write matching nodes before queueing, then restore the canvas baseline (seed is not restored). Conflict rules: LoRAs stack (skip same name); everything else is first-wins per field. Bypass Switch follows whether the card has double-sample fields—wire the second-pass subgraph/parameters into it. Dropping an image when creating a card still reads prompts only by default; use **Load generation settings from image** (with overwrite confirm) for models/params/size/LoRA.
 
 <!-- Screenshot below predates the Group same LoRAs toggle; UI text is the same otherwise. -->
 ![JSON card LoRAs / wildcard auto-embed LoRA](docs/images/json_card_lora.png)
@@ -77,6 +77,7 @@ Restart ComfyUI after install.
 | Meta Apply | Auto-apply image metadata to linked targets (including LoRA via Lora Manager) |
 | Input Parameters | Seed / steps / cfg / sampler / size + JSON |
 | Double Sample Parameters | Second-pass sampler JSON |
+| Bypass Switch | Wire-controlled Bypass/Always for connected nodes; ON when the card has double-sample fields |
 | Image Saver | Save images with hashes & A1111 params |
 
 ## Example workflows & library samples

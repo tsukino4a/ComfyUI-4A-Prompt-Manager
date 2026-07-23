@@ -5,7 +5,7 @@ import {
   parsePromptDocument,
   registerKnownSchedulers,
 } from "/pm4a/static/image_prompt_metadata.js?v=13";
-import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js";
+import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js?v=compact-labels-2";
 import {
   buildStoredImageUrl,
   imageReferenceFromUpload,
@@ -29,6 +29,7 @@ import {
   applyInputParametersFromPayload,
   applyLoraFromPayload,
   applyModelsFromPayload,
+  applyParameterSettingsFromPayload,
   applyPositiveFromPayload,
   connectedScheduler,
   conversionRepairNotice,
@@ -48,8 +49,9 @@ import {
   readImagePromptSnapshot,
   schedulerNodes,
   setWidgetValue,
+  syncBypassSwitchFromDoubleSample,
   withGraphChangeTransaction,
-} from "./meta_apply_core.js?v=5";
+} from "./meta_apply_core.js?v=9";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const DISPLAY_NODE_CLASS = "Prompt Display (4A Prompt Manager)";
@@ -169,10 +171,10 @@ function injectStyles() {
     .pm4a-display-copy svg, .pm4a-display-add svg, .pm4a-display-return svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
     .pm4a-display-parameter-target, .pm4a-display-double-sample-target, .pm4a-display-lora-target, .pm4a-display-model-target { width:142px; height:24px; min-width:0; padding:2px 5px; border:1px solid #4b5359; border-radius:4px; color:#ddd; background:#1b1d20; font:inherit; }
     .pm4a-display-model-target { width:132px; flex:0 1 132px; }
-    .pm4a-display-parameter-grid { padding:6px; display:flex; flex-wrap:wrap; align-items:stretch; gap:5px; border-top:1px solid #424b50; }
-    .pm4a-display-parameter-item { flex:0 0 auto; width:max-content; max-width:100%; min-width:0; padding:4px 6px; display:flex; align-items:baseline; gap:5px; border:1px solid #454d52; border-radius:4px; background:#1b1e20; }
-    .pm4a-display-parameter-label { flex:0 0 auto; color:#919aa0; }
-    .pm4a-display-parameter-value { min-width:0; white-space:nowrap; color:#e7e9ea; user-select:text; }
+    .pm4a-display-parameter-grid { padding:5px; display:flex; flex-wrap:wrap; align-items:stretch; gap:4px; border-top:1px solid #424b50; }
+    .pm4a-display-parameter-item { flex:0 0 auto; width:max-content; max-width:100%; min-width:0; padding:3px 6px; display:flex; align-items:baseline; gap:5px; border:1px solid #454d52; border-radius:4px; background:#1b1e20; }
+    .pm4a-display-parameter-label { flex:0 0 auto; color:#99a2aa; font-size:10px; font-weight:650; letter-spacing:0.04em; line-height:1.2; }
+    .pm4a-display-parameter-value { min-width:0; white-space:nowrap; color:#e7e9ea; font-size:12px; user-select:text; }
     .pm4a-display-hash-list { padding:5px 6px; display:flex; flex-direction:column; gap:4px; border-top:1px solid #464950; }
     .pm4a-display-hash-list[hidden] { display:none; }
     .pm4a-display-hash-row { min-height:27px; padding:2px 3px 2px 7px; display:flex; align-items:center; gap:7px; border:1px solid #45484e; border-radius:4px; background:#1b1d20; }
@@ -942,7 +944,11 @@ function setupDisplayNode(node) {
       }
       const message = applyInputParametersFromPayload(node, { parameters });
       if (!message) throw new Error(t("没有可发送的生成参数"));
-      return { message };
+      // Single-pass send also turns Bypass OFF when a switch exists.
+      const bypassMessage = syncBypassSwitchFromDoubleSample(node, false);
+      return {
+        message: localeJoin([message, bypassMessage].filter(Boolean), { zh: "；", en: "; " }),
+      };
     };
     sendButton.onclick = () => {
       try {
@@ -969,7 +975,13 @@ function setupDisplayNode(node) {
       grid.appendChild(item);
     }
     card.append(header, grid);
-    card.__pm4aApplyParameters = applyParameters;
+    card.__pm4aCommitTargets = () => {
+      refreshParameterTargets();
+      if (parameterTarget.value) {
+        node.properties = node.properties || {};
+        node.properties[TARGET_PARAMETERS_PROPERTY] = parameterTarget.value;
+      }
+    };
     return card;
   };
 
@@ -1048,7 +1060,10 @@ function setupDisplayNode(node) {
       }
       const message = applyDoubleSampleFromPayload(node, { double_sample_parameters: parameters });
       if (!message) throw new Error(t("没有可发送的双采样参数"));
-      return { message };
+      const bypassMessage = syncBypassSwitchFromDoubleSample(node, true);
+      return {
+        message: localeJoin([message, bypassMessage].filter(Boolean), { zh: "；", en: "; " }),
+      };
     };
     sendButton.onclick = () => {
       try {
@@ -1075,7 +1090,13 @@ function setupDisplayNode(node) {
       grid.appendChild(item);
     }
     card.append(header, grid);
-    card.__pm4aApplyDoubleSampleParameters = applyParameters;
+    card.__pm4aCommitTargets = () => {
+      refreshParameterTargets();
+      if (parameterTarget.value) {
+        node.properties = node.properties || {};
+        node.properties[TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY] = parameterTarget.value;
+      }
+    };
     return card;
   };
 
@@ -1175,6 +1196,13 @@ function setupDisplayNode(node) {
     text.value = textValue;
     body.appendChild(text);
     card.append(header, body);
+    card.__pm4aCommitTargets = () => {
+      refreshLoraTargets();
+      if (loraTarget.value) {
+        node.properties = node.properties || {};
+        node.properties[TARGET_LORA_PROPERTY] = loraTarget.value;
+      }
+    };
     card.__pm4aApplyLora = applyLora;
     scheduleTextResize();
     return card;
@@ -1396,14 +1424,15 @@ function setupDisplayNode(node) {
     );
     const loraCard = createLoraCard(payload.loras);
     const loraHashesCard = createLoraHashesCard(payload.loras?.hashes);
-    const settingsCards = [
+    // Hash list is display-only; do not count it as an apply-all target.
+    const actionableCards = [
       modelsCard,
       parametersCard,
       doubleSampleParametersCard,
       loraCard,
-      loraHashesCard,
     ].filter(Boolean);
-    if (settingsCards.length) {
+    const settingsCards = [...actionableCards, loraHashesCard].filter(Boolean);
+    if (actionableCards.length) {
       const applyAllButton = document.createElement("button");
       applyAllButton.type = "button";
       applyAllButton.className = "pm4a-display-return";
@@ -1416,7 +1445,6 @@ function setupDisplayNode(node) {
         const applied = [];
         const errors = [];
         try {
-          // Same path as each card's individual send (prompt "全部使用" stays separate: clear-then-fill).
           if (modelsCard?.__pm4aApplyModels) {
             const modelResult = await modelsCard.__pm4aApplyModels();
             const modelCount = modelResult.applied.length;
@@ -1427,23 +1455,19 @@ function setupDisplayNode(node) {
             }
             errors.push(...modelResult.errors);
           }
-          if (parametersCard?.__pm4aApplyParameters) {
-            try {
-              await Promise.resolve(parametersCard.__pm4aApplyParameters());
-              applied.push(t("生成参数"));
-            } catch (error) {
-              errors.push(t("{key}：{error}", { key: t("生成参数"), error: error.message || error }));
-            }
-          }
-          if (doubleSampleParametersCard?.__pm4aApplyDoubleSampleParameters) {
-            try {
-              await Promise.resolve(doubleSampleParametersCard.__pm4aApplyDoubleSampleParameters());
-              applied.push(t("双采样参数"));
-            } catch (error) {
-              errors.push(t("{key}：{error}", { key: t("双采样参数"), error: error.message || error }));
-            }
-          }
+
+          // Params / double-sample / Bypass: same helper as Meta Apply.
+          parametersCard?.__pm4aCommitTargets?.();
+          doubleSampleParametersCard?.__pm4aCommitTargets?.();
+          const paramResult = applyParameterSettingsFromPayload(node, {
+            parameters: payload.parameters,
+            double_sample_parameters: payload.double_sample_parameters,
+          });
+          applied.push(...paramResult.applied);
+          errors.push(...paramResult.errors);
+
           if (loraCard?.__pm4aApplyLora) {
+            loraCard.__pm4aCommitTargets?.();
             try {
               await loraCard.__pm4aApplyLora();
               applied.push("LoRA");
@@ -1463,12 +1487,12 @@ function setupDisplayNode(node) {
         }
       };
 
-      const topHeader = settingsCards[0].querySelector(":scope > .pm4a-display-card-header");
+      const topHeader = actionableCards[0].querySelector(":scope > .pm4a-display-card-header");
       const topSendButton = topHeader?.querySelector(":scope > .pm4a-display-return");
       if (topSendButton) topHeader.insertBefore(applyAllButton, topSendButton);
       else topHeader?.appendChild(applyAllButton);
-      list.append(...settingsCards);
     }
+    if (settingsCards.length) list.append(...settingsCards);
     const trackCount = payload.tracks.length + 1 + settingsCards.length;
     summaryTitle.textContent = trackCount === 1
       ? t("{sourceText} · 1 栏", { sourceText })

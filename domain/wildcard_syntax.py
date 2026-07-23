@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from hashlib import sha256
 from math import isfinite
 from random import Random
-from typing import Protocol, Sequence
+from typing import Any, Protocol, Sequence
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,9 @@ class WildcardCandidate:
     content: str
     negative: str = ""
     lora_text: str = ""
+    models: tuple[dict[str, Any], ...] = ()
+    parameters: dict[str, Any] = field(default_factory=dict)
+    double_sample_parameters: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,9 @@ class ExpansionResult:
     negatives: tuple[str, ...] = ()
     selected_keys: tuple[str, ...] = ()
     lora_texts: tuple[str, ...] = ()
+    models: tuple[dict[str, Any], ...] = ()
+    parameters: dict[str, Any] = field(default_factory=dict)
+    double_sample_parameters: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -93,6 +99,9 @@ class _ResultAccumulator:
     negatives: list[str]
     selected_keys: list[str]
     lora_texts: list[str]
+    models_groups: list[tuple[dict[str, Any], ...]]
+    parameters_list: list[dict[str, Any]]
+    double_sample_list: list[dict[str, Any]]
 
 
 _COUNT_RE = re.compile(r"(?:(\d+)(?:-(\d*)?)?|-(\d+))\Z")
@@ -574,6 +583,12 @@ def _candidate_content(
     accumulator.selected_keys.append(candidate.key)
     if candidate.lora_text:
         accumulator.lora_texts.append(candidate.lora_text)
+    if candidate.models:
+        accumulator.models_groups.append(candidate.models)
+    if candidate.parameters:
+        accumulator.parameters_list.append(dict(candidate.parameters))
+    if candidate.double_sample_parameters:
+        accumulator.double_sample_list.append(dict(candidate.double_sample_parameters))
     return _expand_nodes(
         parse(candidate.content),
         resolver,
@@ -752,7 +767,7 @@ def expand(
         raise WildcardSyntaxError(f"无效的通配符选择模式：{context.mode}")
     if context.max_depth < 1:
         raise WildcardSyntaxError("通配符最大递归深度必须至少为 1")
-    accumulator = _ResultAccumulator([], [], [])
+    accumulator = _ResultAccumulator([], [], [], [], [], [])
     expanded = _expand_nodes(
         parse(text),
         resolver,
@@ -766,4 +781,46 @@ def expand(
         negatives=tuple(accumulator.negatives),
         selected_keys=tuple(accumulator.selected_keys),
         lora_texts=tuple(accumulator.lora_texts),
+        models=_merge_models(*accumulator.models_groups),
+        parameters=_merge_parameters(*accumulator.parameters_list),
+        double_sample_parameters=_merge_parameters(*accumulator.double_sample_list),
     )
+
+
+def _merge_models(*groups: Sequence[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in groups:
+        for entry in group or ():
+            if not isinstance(entry, dict):
+                continue
+            model_type = str(entry.get("type", "")).strip()
+            if not model_type:
+                continue
+            key = model_type.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(dict(entry))
+    return tuple(merged)
+
+
+def _merge_parameters(*items: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    claimed: set[str] = set()
+    size_claimed = False
+    for item in items:
+        if not isinstance(item, dict) or not item:
+            continue
+        if not size_claimed and ("width" in item or "height" in item):
+            if "width" in item:
+                merged["width"] = item["width"]
+            if "height" in item:
+                merged["height"] = item["height"]
+            size_claimed = True
+        for key, value in item.items():
+            if key in {"width", "height"} or key in claimed:
+                continue
+            claimed.add(key)
+            merged[key] = value
+    return merged

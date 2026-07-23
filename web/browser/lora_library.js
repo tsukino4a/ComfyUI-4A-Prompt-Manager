@@ -145,14 +145,65 @@ export async function searchLoraManager(query, { limit = 20 } = {}) {
     ).trim();
     const name = loraNameFromFile(fileName || relativePath);
     const hash = String(item?.sha256 || item?.hash || "").trim();
+    const modelTitle = String(item?.model_name || item?.modelName || "").trim();
     return {
       fileName,
       relativePath,
       name,
       hash,
+      modelTitle,
       previewUrl: item?.preview_url || item?.previewUrl || "",
     };
   }).filter((item) => item.name && item.hash);
+}
+
+const loraTitleCache = new Map();
+
+function shortLoraHash(hash) {
+  const value = String(hash || "").trim();
+  if (!value) return "";
+  return value.length > 12 ? `${value.slice(0, 10)}…` : value;
+}
+
+/** UI-only subtitle: LM model title + short hash (never persisted to JSON). */
+export function formatLoraEntryMeta(entry) {
+  const title = String(entry?.modelTitle || "").trim();
+  const hash = shortLoraHash(entry?.hash);
+  if (title) return [title, hash].filter(Boolean).join(" · ");
+  return [entry?.hashName || entry?.name, hash || String(entry?.hash || "").trim()]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** Resolve LM model_name for an existing card entry; cached, display-only. */
+export async function resolveLoraManagerTitle(entry) {
+  const existing = String(entry?.modelTitle || "").trim();
+  if (existing) return existing;
+  const name = String(entry?.name || "").trim();
+  const hash = String(entry?.hash || "").trim().toLowerCase();
+  const cacheKey = hash || name.toLowerCase();
+  if (!cacheKey) return "";
+  if (loraTitleCache.has(cacheKey)) return loraTitleCache.get(cacheKey) || "";
+  try {
+    const available = await detectLoraManager();
+    if (!available) {
+      loraTitleCache.set(cacheKey, "");
+      return "";
+    }
+    const items = await searchLoraManager(name || hash.slice(0, 10), { limit: 50 });
+    const match = (hash
+      ? items.find((item) => String(item.hash || "").toLowerCase() === hash)
+      : null)
+      || items.find((item) => item.name.toLowerCase() === name.toLowerCase())
+      || null;
+    const title = String(match?.modelTitle || "").trim();
+    loraTitleCache.set(cacheKey, title);
+    if (hash && name) loraTitleCache.set(name.toLowerCase(), title);
+    return title;
+  } catch (_) {
+    loraTitleCache.set(cacheKey, "");
+    return "";
+  }
 }
 
 export async function defaultLoraStrength(relativePath) {
@@ -180,12 +231,18 @@ export async function pickLoraFromManagerItem(item, strength = null) {
     strength == null || strength === "" ? defaultStrength : strength,
     defaultStrength,
   );
+  const modelTitle = String(item.modelTitle || "").trim();
+  if (modelTitle) {
+    const cacheKey = String(item.hash || "").trim().toLowerCase() || item.name.toLowerCase();
+    if (cacheKey) loraTitleCache.set(cacheKey, modelTitle);
+  }
   return {
     tag: buildLoraTag(item.name, resolved),
     name: item.name,
     strength: resolved,
     hash: item.hash,
     hashName: item.fileName || item.name,
+    modelTitle,
     defaultStrength: formatLoraStrength(defaultStrength),
   };
 }

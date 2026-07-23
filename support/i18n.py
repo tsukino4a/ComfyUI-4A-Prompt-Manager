@@ -19,6 +19,14 @@ _EN_MESSAGES = {
         "Failed to read prompt library information: {error}"
     ),
     "刷新提示词库失败：{error}": "Failed to refresh prompt library: {error}",
+    "扫描本地模型对齐失败：{error}": (
+        "Failed to scan local model alignments: {error}"
+    ),
+    "写回本地模型对齐失败：{error}": (
+        "Failed to write local model alignments: {error}"
+    ),
+    "正在对齐本地模型": "Aligning local models",
+    "正在写回 {path}": "Writing back {path}",
     "读取提示词列表失败：{error}": "Failed to read prompt list: {error}",
     "读取提示词树失败：{error}": "Failed to read prompt tree: {error}",
     "创建文件夹失败：{error}": "Failed to create folder: {error}",
@@ -42,6 +50,9 @@ _EN_MESSAGES = {
     "负面提示词为空，没有发送内容": "Negative prompt is empty; nothing was sent",
     "提示词为空，没有发送内容": "Prompt is empty; nothing was sent",
     "发送失败：{error}": "Send failed: {error}",
+    "没有可应用的模型": "No models available to apply",
+    "没有可应用的 LoRA": "No LoRA available to apply",
+    "没有可应用的推理参数": "No sampler settings available to apply",
     "模型匹配失败：{error}": "Model matching failed: {error}",
     "读取生图设置失败：{error}": "Failed to load generation settings: {error}",
     "保存生图设置失败：{error}": "Failed to save generation settings: {error}",

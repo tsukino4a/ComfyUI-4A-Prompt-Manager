@@ -859,7 +859,12 @@ class ImageSaver4A:
         )
         if prompt_document is not None:
             models = [
-                {"type": model["type"], "name": model["name"], "hash": model["hash"]}
+                {
+                    "type": model["type"],
+                    "name": model["name"],
+                    # Cards store full sha256; A1111 params still use the short hash.
+                    "hash": model.get("sha256") or model["hash"],
+                }
                 for model in resources["models"]
             ]
             if models:

@@ -16,9 +16,9 @@
 
 ![Browser](docs/images/browser.png)
 
-### JSON 卡片 LoRA + Wildcard 自动嵌入 LoRA
+### JSON 卡片 LoRA / 生成设置 + Wildcard 自动套用
 
-JSON 卡片可绑定 LoRA（经 [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager) 搜索选择，支持粘贴 `<lora:名称:强度>` 批量解析添加）。当 Scheduler 栏目用 Wildcard 语法（如 `__路径__`）引用带 LoRA 的卡片时，可开启「自动嵌入 Wildcard LoRA」：入队前把对应 LoRA 自动追加到 Lora Loader（已有同名跳过）。仅 Wildcard 解析到的卡片会触发，手写固定文本不会。开启自动嵌入后，可再开「相同 LoRA 连跑」：批量运行时把同一套 LoRA 的任务排在一起，减少换 LoRA 导致的模型重载时间。
+JSON 卡片可稀疏绑定 LoRA、模型、推理参数（含 seed/宽高）、双采样参数。未填写的字段不会写入 JSON；有双采样字段块即视为二采 ON（不再单独写 enable）。当 Scheduler 栏目用 Wildcard 语法引用这些卡片时，可分别开启「自动嵌入 Wildcard LoRA」「自动应用模型 / 推理参数」：入队前写入对应节点，跑完恢复画布基线（seed 不恢复）。冲突规则：LoRA 可叠（同名跳过），其余按字段先到先得。Bypass Switch 按卡片是否含双采样字段开关——把二采子图/参数节点接到开关上即可。建卡拖图默认仍只读提示词；可用「从图片加载生成设置」覆盖加载（已有设置会确认）。
 
 <!-- 下图截图尚未更新「相同 LoRA 连跑」按钮，其它说明一致。 -->
 ![JSON 卡片 LoRA / Wildcard 自动嵌入 LoRA](docs/images/json_card_lora.png)
@@ -77,6 +77,7 @@ python install.py
 | Meta Apply | 自动把图片元数据应用到目标（含经 Lora Manager 的 LoRA） |
 | Input Parameters | seed / steps / cfg / sampler / 尺寸 + JSON |
 | Double Sample Parameters | 二次采样参数 JSON |
+| Bypass Switch | 接线控制节点 Bypass/Always；卡片含双采样字段时开启 |
 | Image Saver | 保存图片与 hash / A1111 参数 |
 
 ## 示例工作流与提示词样例

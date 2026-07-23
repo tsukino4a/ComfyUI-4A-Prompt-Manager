@@ -81,6 +81,16 @@
       "8": {"name": "参数 JSON", "tooltip": "包含主采样参数的可移植 JSON 元数据。"}
     }
   },
+  "Bypass Switch (4A Prompt Manager)": {
+    "display_name": "旁路开关（4A 提示词管理器）",
+    "description": "将需要控制的节点接到输入上；关闭 enabled 时把这些节点设为 Bypass，开启时恢复 Always。适合切换二采子图。",
+    "inputs": {
+      "enabled": {"name": "启用", "tooltip": "开启时连接的节点正常执行；关闭时将这些节点设为旁路。"}
+    },
+    "outputs": {
+      "0": {"name": "启用", "tooltip": "当前启用状态。"}
+    }
+  },
   "Double Sample Parameters (4A Prompt Manager)": {
     "display_name": "二次采样参数（4A 提示词管理器）",
     "description": "输出二次采样参数以及用于连接图像保存器 parameters_json 输入的自描述 JSON。",

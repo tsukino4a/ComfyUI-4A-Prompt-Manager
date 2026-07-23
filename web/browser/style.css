@@ -60,6 +60,22 @@ textarea {
   font: inherit;
 }
 
+/* Native select arrows sit flush on the edge; use a shared inset chevron. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa3ad' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
+}
+
+select::-ms-expand {
+  display: none;
+}
+
 button,
 a {
   -webkit-tap-highlight-color: transparent;
@@ -640,29 +656,29 @@ body.sidebar-hidden .sidebar-rail {
 .sort-control select {
   width: 100%;
   height: 100%;
-  appearance: none;
   padding: 0 30px 0 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   outline: 0;
-  background: #292d32;
+  background-color: #292d32;
+  background-image: none;
   color: var(--text);
   cursor: pointer;
   font-size: 12px;
   box-shadow: var(--shadow-sm);
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
 }
 
 .sort-control select:hover,
 .sort-control select:focus-visible {
   border-color: #555d68;
-  background: #30353b;
+  background-color: #30353b;
 }
 
 .sort-control > svg {
   position: absolute;
   top: 50%;
-  right: 9px;
+  right: 12px;
   width: 13px;
   height: 13px;
   color: var(--text-muted);
@@ -1832,16 +1848,21 @@ body.batch-mode #list-scroll.batch-marquee-active {
 
 .detail-lora-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 8px;
+  /* text | strength | delete — controls clustered on the right */
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  column-gap: 0;
+  row-gap: 3px;
   align-items: center;
-  padding: 8px 10px;
+  /* left padding favors readable tag; right is tighter because strength+delete sit there */
+  padding: 7px 6px 7px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: #13161a;
 }
 
 .detail-lora-tag {
+  grid-column: 1;
+  grid-row: 1;
   min-width: 0;
   color: #dfe3e8;
   font-family: "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
@@ -1853,6 +1874,7 @@ body.batch-mode #list-scroll.batch-marquee-active {
 
 .detail-lora-meta {
   grid-column: 1;
+  grid-row: 2;
   min-width: 0;
   color: #7f8791;
   font-size: 10px;
@@ -1861,10 +1883,42 @@ body.batch-mode #list-scroll.batch-marquee-active {
   word-break: break-all;
 }
 
-.detail-lora-item .detail-edit-button {
+.detail-lora-strength {
   grid-column: 2;
   grid-row: 1 / span 2;
+  box-sizing: border-box;
+  width: 3.4em;
+  height: 24px;
+  margin-left: 8px;
+  padding: 0 4px;
+  border: 1px solid #3a4048;
+  border-radius: 4px;
+  background: #0f1215;
+  color: #d7dce2;
+  font: 11px/1 "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.detail-lora-strength::-webkit-inner-spin-button,
+.detail-lora-strength::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.detail-lora-strength:focus {
+  outline: none;
+  border-color: #4f8fd6;
+  box-shadow: 0 0 0 1px rgba(79, 143, 214, 0.28);
+}
+
+.detail-lora-item .detail-edit-button {
+  grid-column: 3;
+  grid-row: 1 / span 2;
   align-self: center;
+  margin-left: 4px;
 }
 
 .detail-lora-item .detail-edit-button svg {
@@ -1873,6 +1927,87 @@ body.batch-mode #list-scroll.batch-marquee-active {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.card-settings-block {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.card-settings-subtitle {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.card-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.card-settings-grid label,
+.card-settings-check {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.card-settings-grid label > span,
+.card-settings-check > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+
+.card-settings-check {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.card-settings-grid input,
+.card-settings-grid select,
+.card-settings-inline input,
+.card-settings-inline select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #4b5359;
+  border-radius: 4px;
+  color: #e2e6e9;
+  background-color: #1b1d20;
+  font: 12px/1.4 var(--font);
+}
+
+.card-settings-grid select,
+.card-settings-inline select {
+  padding: 0 28px 0 8px;
+}
+
+.card-settings-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.create-section-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.card-settings-create {
+  margin-top: 10px;
 }
 
 .lora-picker-confirm {
@@ -1994,19 +2129,10 @@ body.batch-mode #list-scroll.batch-marquee-active {
 }
 
 .lora-picker-paste-field {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 8px;
-  align-items: end;
   margin-top: 8px;
 }
 
-.lora-picker-paste-field > span {
-  grid-column: 1 / -1;
-}
-
 .lora-picker-paste-field textarea {
-  grid-column: 1;
   min-height: 52px;
   max-height: 96px;
   resize: vertical;
@@ -2015,9 +2141,45 @@ body.batch-mode #list-scroll.batch-marquee-active {
   line-height: 1.35;
 }
 
-.lora-picker-paste-field #lora-picker-parse {
+/*
+  Bottom stack gaps (textarea → 解析添加 → 取消 → dialog edge).
+  Previously uneven because:
+  - gap1 ≈ create-field gap (3px)
+  - gap2 ≈ status min-height 18px + status margins 7+9 (=34px)
+  - gap3 ≈ form padding-bottom (16px)
+  Average ≈ (3 + 34 + 16) / 3 ≈ 18px; use 12px for a tighter compact modal,
+  after removing the status block from between the buttons.
+*/
+#lora-picker-modal .folder-create-form {
+  padding-bottom: 0;
+}
+
+.lora-picker-bottom {
+  --lora-picker-stack-gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: start;
+  margin-top: var(--lora-picker-stack-gap);
+  padding-bottom: var(--lora-picker-stack-gap);
+}
+
+.lora-picker-bottom .modal-status {
+  grid-column: 1;
+  min-height: 0;
+  margin: 0;
+}
+
+.lora-picker-bottom .modal-status:empty {
+  display: none;
+}
+
+.lora-picker-bottom-actions {
   grid-column: 2;
-  align-self: end;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--lora-picker-stack-gap);
 }
 
 .detail-footer {
@@ -2172,6 +2334,27 @@ body.batch-mode #list-scroll.batch-marquee-active {
   color: #fff;
 }
 
+.inspector-send-button.apply-models-slot:hover,
+.inspector-send-button.apply-models-slot:focus-visible {
+  border-color: rgba(96, 178, 255, 0.6);
+  background: rgba(96, 178, 255, 0.12);
+  color: #fff;
+}
+
+.inspector-send-button.apply-lora-slot:hover,
+.inspector-send-button.apply-lora-slot:focus-visible {
+  border-color: rgba(186, 140, 255, 0.58);
+  background: rgba(186, 140, 255, 0.12);
+  color: #fff;
+}
+
+.inspector-send-button.apply-parameters-slot:hover,
+.inspector-send-button.apply-parameters-slot:focus-visible {
+  border-color: rgba(255, 176, 92, 0.6);
+  background: rgba(255, 176, 92, 0.12);
+  color: #fff;
+}
+
 .send-status {
   min-width: 0;
   min-height: 0;
@@ -2223,6 +2406,12 @@ body.batch-mode #list-scroll.batch-marquee-active {
   border-radius: var(--radius-md);
   background: #191c20;
   box-shadow: var(--shadow-lg);
+}
+
+.prompt-create-dialog {
+  display: flex;
+  flex-direction: column;
+  height: min(860px, calc(100vh - 56px));
 }
 
 .modal-header {
@@ -2293,56 +2482,73 @@ body.batch-mode #list-scroll.batch-marquee-active {
 }
 
 .prompt-create-form {
-  max-height: calc(100vh - 124px);
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-.create-primary-fields {
+.prompt-create-body {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr);
-  gap: 14px;
-  padding: 14px 16px 0;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(420px, 1.2fr);
+  gap: 12px;
+  padding: 12px 14px;
+  overflow: hidden;
 }
 
 .create-field {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
 }
 
 .create-field > span,
-.create-section-label {
+.create-section-label,
+.create-section-label-row > span,
+#add-prompt-modal .create-field > span,
+#add-prompt-modal .create-section-label-row > span,
+#add-prompt-modal .card-settings-subtitle,
+#add-prompt-modal .card-settings-grid label > span {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 650;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
 }
 
 .create-field input,
 .create-field select,
 .create-field textarea {
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 1px solid #4b5359;
+  border-radius: 4px;
   outline: 0;
-  background: #13161a;
-  color: var(--text);
-  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.18);
+  background-color: #1b1d20;
+  color: #e2e6e9;
+  font: 12px/1.4 var(--font);
+  box-shadow: none;
 }
 
 .create-field input,
 .create-field select {
-  height: 34px;
-  padding: 0 10px;
+  height: 30px;
+  padding: 0 8px;
+}
+
+.create-field select {
+  padding: 0 28px 0 8px;
 }
 
 .create-field textarea {
-  min-height: 84px;
-  padding: 10px 11px;
+  min-height: 64px;
+  padding: 7px 9px;
   resize: vertical;
-  line-height: 1.5;
+  line-height: 1.45;
+  font-family: "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
+  font-size: 12px;
 }
 
 .create-field input:focus,
@@ -2352,34 +2558,65 @@ body.batch-mode #list-scroll.batch-marquee-active {
   box-shadow: 0 0 0 1px rgba(47, 156, 255, 0.18);
 }
 
-.prompt-create-grid {
+/* Invisible layout shell: pins 保存到 + example image without a visible frame. */
+.create-image-panel {
+  min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr);
-  gap: 14px;
-  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.create-image-panel-foot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+}
+
+.create-image-dims {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.create-scroll-column {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-x: hidden;
   overflow-y: auto;
+  padding-right: 4px;
   scrollbar-color: #464c54 transparent;
   scrollbar-width: thin;
 }
 
-.create-image-column {
-  min-width: 0;
+.create-lora-panel {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 .create-image-drop {
   position: relative;
-  min-height: 326px;
+  min-height: 180px;
   flex: 1;
   display: grid;
   place-items: center;
   overflow: hidden;
+  margin: 0;
   padding: 0;
   border: 1px dashed #48515d;
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
   background: #111317;
   color: var(--text-muted);
   cursor: pointer;
@@ -2395,7 +2632,7 @@ body.batch-mode #list-scroll.batch-marquee-active {
 .create-image-drop img {
   width: 100%;
   height: 100%;
-  max-height: 46vh;
+  max-height: none;
   object-fit: contain;
 }
 
@@ -2403,14 +2640,14 @@ body.batch-mode #list-scroll.batch-marquee-active {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
-  padding: 24px;
+  gap: 5px;
+  padding: 16px;
 }
 
 .create-image-empty svg {
-  width: 38px;
-  height: 38px;
-  margin-bottom: 3px;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 2px;
   color: #66717e;
 }
 
@@ -2458,23 +2695,61 @@ body.batch-mode #list-scroll.batch-marquee-active {
   color: var(--danger);
 }
 
-.create-text-column {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.create-text-field textarea {
+  min-height: 72px;
 }
 
-.create-text-field:first-child textarea {
-  min-height: 174px;
+#add-prompt-content {
+  min-height: 88px;
 }
 
-.create-text-field:nth-child(2) textarea {
-  min-height: 120px;
+#add-prompt-negative {
+  min-height: 64px;
+}
+
+.card-settings-model-pick {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.card-settings-model-pick select {
+  width: 100%;
+  height: 30px;
+  padding: 0 28px 0 8px;
+  border: 1px solid #4b5359;
+  border-radius: 4px;
+  outline: 0;
+  background-color: #1b1d20;
+  color: #e2e6e9;
+  font: 12px/1.4 var(--font);
 }
 
 .create-note-field textarea {
-  min-height: 62px;
+  min-height: 48px;
+}
+
+#add-prompt-modal .card-settings-block {
+  gap: 6px;
+  margin-top: 6px;
+}
+
+#add-prompt-modal .card-settings-create {
+  margin-top: 2px;
+}
+
+#add-prompt-modal .create-section-label-row {
+  margin-bottom: 4px;
+  min-height: 24px;
+}
+
+/* Add-prompt single-line field height (title / save-to / params / model pick). Tune here. */
+#add-prompt-modal .create-field input,
+#add-prompt-modal .create-field select,
+#add-prompt-modal .card-settings-grid input,
+#add-prompt-modal .card-settings-grid select,
+#add-prompt-modal .card-settings-inline input,
+#add-prompt-modal .card-settings-inline select,
+#add-prompt-modal .card-settings-model-pick select {
+  height: 26px;
 }
 
 .modal-footer {
@@ -3334,15 +3609,12 @@ body.operation-busy {
 
   .prompt-create-dialog {
     width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
     max-height: calc(100vh - 24px);
   }
 
-  .create-primary-fields {
-    grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.2fr);
-  }
-
-  .prompt-create-grid {
-    grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  .prompt-create-body {
+    grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.15fr);
   }
 }
 
@@ -3543,39 +3815,31 @@ body.operation-busy {
   }
 
   .prompt-create-form {
-    max-height: calc(100vh - 64px);
+    flex: 1;
+    min-height: 0;
   }
 
-  .create-primary-fields,
-  .prompt-create-grid {
+  .prompt-create-body {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .create-primary-fields {
-    gap: 9px;
-    padding: 10px 12px 0;
-  }
-
-  .prompt-create-grid {
+    grid-template-rows: minmax(200px, 32vh) minmax(0, 1fr);
     gap: 12px;
     padding: 12px;
   }
 
+  .create-image-panel {
+    max-height: 32vh;
+  }
+
   .create-image-drop {
-    min-height: 180px;
-    max-height: 240px;
+    min-height: 120px;
   }
 
-  .create-image-drop img {
-    max-height: 240px;
+  #add-prompt-content {
+    min-height: 72px;
   }
 
-  .create-text-field:first-child textarea {
-    min-height: 132px;
-  }
-
-  .create-text-field:nth-child(2) textarea {
-    min-height: 92px;
+  .create-text-field textarea {
+    min-height: 64px;
   }
 
   .modal-backdrop:not(.detail-modal):not(#add-prompt-modal):not(#generation-settings-modal) {

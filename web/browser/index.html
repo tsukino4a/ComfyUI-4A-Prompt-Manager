@@ -282,6 +282,9 @@
               <span class="detail-send-label" data-i18n="发送到">发送到</span>
               <div class="detail-send-actions" aria-label="发送负面提示词" data-i18n-aria-label="发送负面提示词">
                 <button type="button" class="inspector-send-button negative-slot" data-slot="negative" title="发送到负面" aria-label="发送到负面" data-i18n-title="发送到负面" data-i18n-aria-label="发送到负面"><span data-i18n="负面">负面</span></button>
+                <button type="button" class="inspector-send-button apply-models-slot" data-apply="models" title="应用模型" aria-label="应用模型" data-i18n-title="应用模型" data-i18n-aria-label="应用模型"><span data-i18n="模型">模型</span></button>
+                <button type="button" class="inspector-send-button apply-lora-slot" data-apply="lora" title="应用 LoRA" aria-label="应用 LoRA" data-i18n-title="应用 LoRA" data-i18n-aria-label="应用 LoRA"><span data-i18n="LoRA">LoRA</span></button>
+                <button type="button" class="inspector-send-button apply-parameters-slot" data-apply="parameters" title="应用推理参数" aria-label="应用推理参数" data-i18n-title="应用推理参数" data-i18n-aria-label="应用推理参数"><span data-i18n="参数">参数</span></button>
               </div>
             </div>
           </section>
@@ -295,6 +298,54 @@
               </button>
             </div>
             <div id="detail-lora-list" class="detail-lora-list" data-empty-text="暂无 LoRA" data-i18n-empty-text="暂无 LoRA"></div>
+          </section>
+          <section id="detail-settings-panel" class="detail-content-panel detail-optional-panel">
+            <div class="detail-section-heading">
+              <div class="detail-section-label-group">
+                <div class="section-label" data-i18n="生成设置">生成设置</div>
+              </div>
+              <button type="button" id="detail-load-settings-from-image" class="detail-edit-button" title="从图片加载生成设置" aria-label="从图片加载生成设置" data-i18n-title="从图片加载生成设置" data-i18n-aria-label="从图片加载生成设置">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4Z" /><path d="m5 17 5-6 3.5 4 2-2 3.5 4M12 3v8m-3-3 3 3 3-3" /></svg>
+              </button>
+            </div>
+            <div class="card-settings-block">
+              <div class="card-settings-subtitle" data-i18n="基础模型">基础模型</div>
+              <div id="detail-models-list" class="detail-lora-list" data-empty-text="暂无模型" data-i18n-empty-text="暂无模型"></div>
+              <div class="card-settings-inline card-settings-model-pick">
+                <select id="detail-base-model" aria-label="基础模型" data-i18n-aria-label="基础模型"></select>
+                <button type="button" id="detail-add-model" class="modal-secondary-button" data-i18n="添加">添加</button>
+              </div>
+            </div>
+            <div class="card-settings-block" id="detail-parameters-form">
+              <div class="card-settings-subtitle" data-i18n="推理参数">推理参数</div>
+              <div class="card-settings-grid">
+                <label><span data-i18n="种子">种子</span><input data-param="seed" type="text" inputmode="numeric" spellcheck="false" /></label>
+                <label><span data-i18n="步数">步数</span><input data-param="steps" type="text" inputmode="numeric" spellcheck="false" /></label>
+                <label><span>CFG</span><input data-param="cfg" type="text" inputmode="decimal" spellcheck="false" /></label>
+                <label><span data-i18n="去噪强度">去噪强度</span><input data-param="denoise" type="text" inputmode="decimal" spellcheck="false" /></label>
+                <label><span data-i18n="采样器">采样器</span><select data-param="sampler"></select></label>
+                <label><span data-i18n="调度器">调度器</span><select data-param="scheduler"></select></label>
+                <label><span data-i18n="宽度">宽度</span><input data-param="width" type="text" inputmode="numeric" spellcheck="false" /></label>
+                <label><span data-i18n="高度">高度</span><input data-param="height" type="text" inputmode="numeric" spellcheck="false" /></label>
+              </div>
+              <div class="card-settings-inline">
+                <select id="detail-ratio-helper" aria-label="比例辅助填宽高" data-i18n-aria-label="比例辅助填宽高"></select>
+                <input id="detail-longest-helper" type="text" inputmode="numeric" value="1536" title="最长边" data-i18n-title="最长边" />
+                <button type="button" id="detail-apply-ratio" class="modal-secondary-button" data-i18n="按比例填宽高">按比例填宽高</button>
+              </div>
+            </div>
+            <div class="card-settings-block" id="detail-double-form">
+              <div class="card-settings-subtitle" data-i18n="双采样">双采样</div>
+              <div class="card-settings-grid">
+                <label><span data-i18n="种子">种子</span><input data-double="seed" type="text" inputmode="numeric" spellcheck="false" /></label>
+                <label><span data-i18n="步数">步数</span><input data-double="steps" type="text" inputmode="numeric" spellcheck="false" /></label>
+                <label><span>CFG</span><input data-double="cfg" type="text" inputmode="decimal" spellcheck="false" /></label>
+                <label><span data-i18n="去噪强度">去噪强度</span><input data-double="denoise" type="text" inputmode="decimal" spellcheck="false" /></label>
+                <label><span data-i18n="采样器">采样器</span><select data-double="sampler"></select></label>
+                <label><span data-i18n="调度器">调度器</span><select data-double="scheduler"></select></label>
+              </div>
+            </div>
+            <input id="detail-settings-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
           </section>
           <section id="detail-note-panel" class="detail-content-panel detail-optional-panel">
             <div class="detail-section-heading">
@@ -346,19 +397,12 @@
         </div>
       </header>
       <form id="add-prompt-form" class="prompt-create-form" novalidate>
-        <div class="create-primary-fields">
-          <label class="create-field">
-            <span data-i18n="保存到">保存到</span>
-            <select id="add-prompt-folder" aria-label="保存文件夹" data-i18n-aria-label="保存文件夹"></select>
-          </label>
-          <label class="create-field create-title-field">
-            <span data-i18n="标题">标题</span>
-            <input id="add-prompt-name" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="输入提示词标题" data-i18n-placeholder="输入提示词标题" />
-          </label>
-        </div>
-        <div class="prompt-create-grid">
-          <section class="create-image-column">
-            <div class="create-section-label" data-i18n="示例图">示例图</div>
+        <div class="prompt-create-body">
+          <aside class="create-image-panel" aria-label="示例图" data-i18n-aria-label="示例图">
+            <label class="create-field">
+              <span data-i18n="保存到">保存到</span>
+              <select id="add-prompt-folder" aria-label="保存文件夹" data-i18n-aria-label="保存文件夹"></select>
+            </label>
             <button type="button" id="add-prompt-image-drop" class="create-image-drop" aria-label="选择或拖入示例图" data-i18n-aria-label="选择或拖入示例图">
               <img id="add-prompt-image-preview" alt="示例图预览" data-i18n-alt="示例图预览" hidden />
               <span id="add-prompt-image-empty" class="create-image-empty">
@@ -369,9 +413,16 @@
               <span class="create-image-overlay" data-i18n="松开即可读取图片">松开即可读取图片</span>
             </button>
             <input id="add-prompt-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
-            <p id="add-prompt-image-status" class="create-image-status" data-i18n="尚未选择图片">尚未选择图片</p>
-          </section>
-          <div class="create-text-column">
+            <div class="create-image-panel-foot">
+              <p id="add-prompt-image-dims" class="create-image-dims" hidden></p>
+              <p id="add-prompt-image-status" class="create-image-status" data-i18n="尚未选择图片">尚未选择图片</p>
+            </div>
+          </aside>
+          <div class="create-scroll-column">
+            <label class="create-field create-title-field">
+              <span data-i18n="标题">标题</span>
+              <input id="add-prompt-name" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="输入提示词标题" data-i18n-placeholder="输入提示词标题" />
+            </label>
             <label class="create-field create-text-field">
               <span data-i18n="正面提示词">正面提示词</span>
               <textarea id="add-prompt-content" spellcheck="false" placeholder="输入正面提示词，或拖入带 metadata 的图片自动读取" data-i18n-placeholder="输入正面提示词，或拖入带 metadata 的图片自动读取"></textarea>
@@ -384,6 +435,53 @@
               <span data-i18n="备注">备注</span>
               <textarea id="add-prompt-note" spellcheck="false" placeholder="可留空" data-i18n-placeholder="可留空"></textarea>
             </label>
+            <section class="create-lora-panel">
+              <div class="create-section-label-row">
+                <span data-i18n="Lora">Lora</span>
+                <button type="button" id="add-prompt-add-lora" class="detail-edit-button" title="添加 LoRA" aria-label="添加 LoRA" data-i18n-title="添加 LoRA" data-i18n-aria-label="添加 LoRA">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" /></svg>
+                </button>
+              </div>
+              <div id="add-lora-list" class="detail-lora-list" data-empty-text="暂无 LoRA" data-i18n-empty-text="暂无 LoRA"></div>
+            </section>
+            <section class="create-field card-settings-create">
+              <div class="create-section-label-row">
+                <span data-i18n="生成设置">生成设置</span>
+                <button type="button" id="add-prompt-load-settings" class="modal-secondary-button" data-i18n="从图片加载生成设置">从图片加载生成设置</button>
+              </div>
+              <div class="card-settings-block">
+                <div class="card-settings-subtitle" data-i18n="基础模型">基础模型</div>
+                <div id="add-models-list" class="detail-lora-list" data-empty-text="暂无模型" data-i18n-empty-text="暂无模型"></div>
+                <div class="card-settings-inline card-settings-model-pick">
+                  <select id="add-base-model" aria-label="基础模型" data-i18n-aria-label="基础模型"></select>
+                  <button type="button" id="add-add-model" class="modal-secondary-button" data-i18n="添加">添加</button>
+                </div>
+              </div>
+              <div class="card-settings-block" id="add-parameters-form">
+                <div class="card-settings-subtitle" data-i18n="推理参数">推理参数</div>
+                <div class="card-settings-grid">
+                  <label><span data-i18n="种子">种子</span><input data-param="seed" type="text" inputmode="numeric" spellcheck="false" /></label>
+                  <label><span data-i18n="步数">步数</span><input data-param="steps" type="text" inputmode="numeric" spellcheck="false" /></label>
+                  <label><span>CFG</span><input data-param="cfg" type="text" inputmode="decimal" spellcheck="false" /></label>
+                  <label><span data-i18n="去噪强度">去噪强度</span><input data-param="denoise" type="text" inputmode="decimal" spellcheck="false" /></label>
+                  <label><span data-i18n="采样器">采样器</span><select data-param="sampler"></select></label>
+                  <label><span data-i18n="调度器">调度器</span><select data-param="scheduler"></select></label>
+                  <label><span data-i18n="宽度">宽度</span><input data-param="width" type="text" inputmode="numeric" spellcheck="false" /></label>
+                  <label><span data-i18n="高度">高度</span><input data-param="height" type="text" inputmode="numeric" spellcheck="false" /></label>
+                </div>
+              </div>
+              <div class="card-settings-block" id="add-double-form">
+                <div class="card-settings-subtitle" data-i18n="双采样">双采样</div>
+                <div class="card-settings-grid">
+                  <label><span data-i18n="种子">种子</span><input data-double="seed" type="text" inputmode="numeric" spellcheck="false" /></label>
+                  <label><span data-i18n="步数">步数</span><input data-double="steps" type="text" inputmode="numeric" spellcheck="false" /></label>
+                  <label><span>CFG</span><input data-double="cfg" type="text" inputmode="decimal" spellcheck="false" /></label>
+                  <label><span data-i18n="去噪强度">去噪强度</span><input data-double="denoise" type="text" inputmode="decimal" spellcheck="false" /></label>
+                  <label><span data-i18n="采样器">采样器</span><select data-double="sampler"></select></label>
+                  <label><span data-i18n="调度器">调度器</span><select data-double="scheduler"></select></label>
+                </div>
+              </div>
+            </section>
           </div>
         </div>
         <footer class="modal-footer">
@@ -667,11 +765,13 @@
         <label class="create-field lora-picker-paste-field">
           <span data-i18n="粘贴 LoRA 串">粘贴 LoRA 串</span>
           <textarea id="lora-picker-paste" rows="2" spellcheck="false" placeholder="<lora:名称:强度> …" data-i18n-placeholder="<lora:名称:强度> …"></textarea>
-          <button type="button" id="lora-picker-parse" class="modal-secondary-button" data-i18n="解析添加">解析添加</button>
         </label>
-        <p id="lora-picker-status" class="modal-status" aria-live="polite"></p>
-        <div class="modal-actions">
-          <button type="button" id="lora-picker-cancel" class="modal-secondary-button" data-i18n="取消">取消</button>
+        <div class="lora-picker-bottom">
+          <p id="lora-picker-status" class="modal-status" aria-live="polite"></p>
+          <div class="lora-picker-bottom-actions">
+            <button type="button" id="lora-picker-parse" class="modal-secondary-button" data-i18n="解析添加">解析添加</button>
+            <button type="button" id="lora-picker-cancel" class="modal-secondary-button" data-i18n="取消">取消</button>
+          </div>
         </div>
       </div>
     </section>

@@ -7,6 +7,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -26,6 +27,46 @@ def empty_lora_payload() -> dict[str, Any]:
     return {"text": "", "hashes": []}
 
 
+PARAMETER_KEYS: tuple[str, ...] = (
+    "seed",
+    "steps",
+    "cfg",
+    "sampler",
+    "scheduler",
+    "denoise",
+    "width",
+    "height",
+)
+DOUBLE_SAMPLE_KEYS: tuple[str, ...] = (
+    "seed",
+    "steps",
+    "cfg",
+    "sampler",
+    "scheduler",
+    "denoise",
+)
+
+
+def empty_models_payload() -> list[dict[str, Any]]:
+    return []
+
+
+def empty_parameters_payload() -> dict[str, Any]:
+    return {}
+
+
+def empty_double_sample_payload() -> dict[str, Any]:
+    return {}
+
+
+def empty_card_settings() -> dict[str, Any]:
+    return {
+        "models": empty_models_payload(),
+        "parameters": empty_parameters_payload(),
+        "double_sample_parameters": empty_double_sample_payload(),
+    }
+
+
 @dataclass(frozen=True)
 class PromptDocument:
     format: Literal["json_card", "txt_wildcard"]
@@ -34,6 +75,11 @@ class PromptDocument:
     negative: str = ""
     note: str = ""
     lora: dict[str, Any] = field(default_factory=empty_lora_payload)
+    models: tuple[dict[str, Any], ...] = ()
+    parameters: dict[str, Any] = field(default_factory=empty_parameters_payload)
+    double_sample_parameters: dict[str, Any] = field(
+        default_factory=empty_double_sample_payload
+    )
 
 
 def _normalize_txt_text(text: str) -> Optional[str]:
@@ -187,6 +233,158 @@ def append_lora_text(base: str, extra: str) -> str:
     return f"{base_text.rstrip()} {' '.join(additions)}"
 
 
+def normalize_models_payload(
+    value: Any,
+    *,
+    filename: str = "",
+) -> list[dict[str, Any]]:
+    """Normalize optional JSON-card `models` to a list of model entries."""
+    label = f"：{filename}" if filename else ""
+    if value is None or value == "" or value == []:
+        return empty_models_payload()
+    if not isinstance(value, list):
+        raise ValueError(tr("models 必须是数组{label}", label=label))
+    models: list[dict[str, Any]] = []
+    seen_types: set[str] = set()
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise ValueError(tr("models 项必须是对象{label}", label=label))
+        model_type = str(entry.get("type", "")).strip()
+        name = str(entry.get("name", "")).strip()
+        digest = str(entry.get("hash", "")).strip()
+        if not model_type and not name and not digest:
+            continue
+        if not model_type or not name:
+            raise ValueError(tr("models 项需要 type 与 name{label}", label=label))
+        type_key = model_type.casefold()
+        if type_key in seen_types:
+            continue
+        seen_types.add(type_key)
+        item: dict[str, Any] = {"type": model_type, "name": name}
+        if digest:
+            item["hash"] = digest
+        version_id = entry.get("model_version_id")
+        if version_id is not None and str(version_id).strip():
+            item["model_version_id"] = str(version_id).strip()
+        models.append(item)
+    return models
+
+
+def _normalize_number(value: Any, *, integer: bool, label: str, key: str) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(tr("{key} 必须是数字{label}", key=key, label=label))
+    number = float(value)
+    if not isfinite(number):
+        raise ValueError(tr("{key} 必须是有效数字{label}", key=key, label=label))
+    return int(number) if integer else number
+
+
+def normalize_parameters_payload(
+    value: Any,
+    *,
+    filename: str = "",
+    allowed_keys: tuple[str, ...] = PARAMETER_KEYS,
+) -> dict[str, Any]:
+    """Normalize sparse sampler/resolution parameters; omit empty keys."""
+    label = f"：{filename}" if filename else ""
+    if value is None or value == "" or value == {}:
+        return empty_parameters_payload()
+    if not isinstance(value, dict):
+        raise ValueError(tr("parameters 必须是对象{label}", label=label))
+    allowed = set(allowed_keys)
+    parameters: dict[str, Any] = {}
+    for key, raw in value.items():
+        if key not in allowed or raw is None or raw == "":
+            continue
+        if key in {"seed", "steps", "width", "height"}:
+            parameters[key] = _normalize_number(raw, integer=True, label=label, key=key)
+        elif key in {"cfg", "denoise"}:
+            parameters[key] = _normalize_number(raw, integer=False, label=label, key=key)
+        elif key in {"sampler", "scheduler"}:
+            text = str(raw).strip()
+            if text:
+                parameters[key] = text
+    return parameters
+
+
+def normalize_double_sample_payload(
+    value: Any,
+    *,
+    filename: str = "",
+) -> dict[str, Any]:
+    return normalize_parameters_payload(
+        value,
+        filename=filename,
+        allowed_keys=DOUBLE_SAMPLE_KEYS,
+    )
+
+
+def merge_models(*groups: Any) -> list[dict[str, Any]]:
+    """Merge model lists; first entry per type wins."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in groups:
+        if not group:
+            continue
+        items = group if isinstance(group, list) else list(group)
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            model_type = str(entry.get("type", "")).strip()
+            if not model_type:
+                continue
+            key = model_type.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(dict(entry))
+    return merged
+
+
+def merge_parameters(*items: Any) -> dict[str, Any]:
+    """Merge sparse parameter dicts; first value per field wins; width/height pair."""
+    merged: dict[str, Any] = {}
+    claimed: set[str] = set()
+    size_claimed = False
+    for item in items:
+        if not isinstance(item, dict) or not item:
+            continue
+        if not size_claimed and ("width" in item or "height" in item):
+            if "width" in item:
+                merged["width"] = item["width"]
+            if "height" in item:
+                merged["height"] = item["height"]
+            size_claimed = True
+        for key, value in item.items():
+            if key in {"width", "height"} or key in claimed:
+                continue
+            claimed.add(key)
+            merged[key] = value
+    return merged
+
+
+def merge_double_sample_parameters(*items: Any) -> dict[str, Any]:
+    return merge_parameters(*items)
+
+
+def card_settings_from_document(document: "PromptDocument") -> dict[str, Any]:
+    return {
+        "models": [dict(entry) for entry in document.models],
+        "parameters": dict(document.parameters),
+        "double_sample_parameters": dict(document.double_sample_parameters),
+    }
+
+
+def settings_nonempty(settings: Optional[dict[str, Any]]) -> bool:
+    if not isinstance(settings, dict):
+        return False
+    return bool(
+        settings.get("models")
+        or settings.get("parameters")
+        or settings.get("double_sample_parameters")
+    )
+
+
 def read_prompt_document(path: Path) -> PromptDocument:
     """Read one JSON card or traditional line-based TXT wildcard."""
     if path.suffix.casefold() == ".json":
@@ -198,6 +396,9 @@ def read_prompt_document(path: Path) -> PromptDocument:
             negative=document["negative"],
             note=document["note"],
             lora=document["lora"],
+            models=tuple(document["models"]),
+            parameters=dict(document["parameters"]),
+            double_sample_parameters=dict(document["double_sample_parameters"]),
         )
     if path.suffix.casefold() == ".txt":
         raw_content = read_txt_text(path)
@@ -257,6 +458,13 @@ def _read_json_prompt(path: Path) -> dict[str, Any]:
             require_hashes_when_text=False,
             filename=path.name,
         ),
+        "models": normalize_models_payload(raw.get("models"), filename=path.name),
+        "parameters": normalize_parameters_payload(
+            raw.get("parameters"), filename=path.name
+        ),
+        "double_sample_parameters": normalize_double_sample_payload(
+            raw.get("double_sample_parameters"), filename=path.name
+        ),
     }
 
 
@@ -267,6 +475,9 @@ def _write_json_prompt(
     negative: str,
     note: str,
     lora: Optional[dict[str, Any]] = None,
+    models: Optional[list[dict[str, Any]]] = None,
+    parameters: Optional[dict[str, Any]] = None,
+    double_sample_parameters: Optional[dict[str, Any]] = None,
 ) -> None:
     payload: dict[str, Any] = {
         "content": content,
@@ -280,6 +491,17 @@ def _write_json_prompt(
     )
     if normalized_lora["text"] or normalized_lora["hashes"]:
         payload["lora"] = normalized_lora
+    normalized_models = normalize_models_payload(models, filename=path.name)
+    if normalized_models:
+        payload["models"] = normalized_models
+    normalized_parameters = normalize_parameters_payload(parameters, filename=path.name)
+    if normalized_parameters:
+        payload["parameters"] = normalized_parameters
+    normalized_double = normalize_double_sample_payload(
+        double_sample_parameters, filename=path.name
+    )
+    if normalized_double:
+        payload["double_sample_parameters"] = normalized_double
     temporary = path.with_name(f".{path.stem}.pm4a-save-{uuid.uuid4().hex}.tmp")
     try:
         with temporary.open("w", encoding="utf-8", newline="\n") as handle:

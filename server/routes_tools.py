@@ -142,6 +142,72 @@ async def handle_scheduler_lora_plan(request: web.Request) -> web.Response:
         return _json_error(tr("预览 LoRA 计划失败：{error}", error=exc), 500)
 
 
+async def handle_settings_apply(request: web.Request) -> web.Response:
+    """Broadcast card settings apply (models / LoRA / parameters) to the canvas."""
+    try:
+        data = await request.json()
+    except Exception:
+        return _json_error("invalid json")
+
+    apply = str(data.get("apply") or "").strip()
+    if apply not in {"models", "lora", "parameters"}:
+        return _json_error("apply must be models, lora, or parameters")
+
+    key = data.get("key")
+    models = data.get("models")
+    lora = data.get("lora")
+    parameters = data.get("parameters")
+    double_sample = data.get("double_sample_parameters")
+
+    if isinstance(key, str) and key.strip():
+        entry = wc.get_entry(key)
+        if not entry:
+            return _json_error("not found", 404)
+        if models is None:
+            models = entry.get("models") or []
+        if lora is None:
+            lora = entry.get("lora") or {"text": "", "hashes": []}
+        if parameters is None:
+            parameters = entry.get("parameters") or {}
+        if double_sample is None:
+            double_sample = entry.get("double_sample_parameters") or {}
+
+    if apply == "models":
+        if not isinstance(models, list) or not models:
+            return _json_error(tr("没有可应用的模型"))
+    elif apply == "lora":
+        text = ""
+        if isinstance(lora, dict):
+            text = str(lora.get("text") or "").strip()
+        if not text:
+            return _json_error(tr("没有可应用的 LoRA"))
+    else:
+        has_parameters = isinstance(parameters, dict) and bool(parameters)
+        has_double = isinstance(double_sample, dict) and bool(double_sample)
+        if not has_parameters and not has_double:
+            return _json_error(tr("没有可应用的推理参数"))
+
+    payload = {
+        "apply": apply,
+        "models": models if isinstance(models, list) else [],
+        "loras": lora if isinstance(lora, dict) else {"text": "", "hashes": []},
+        "parameters": parameters if isinstance(parameters, dict) else {},
+        "double_sample_parameters": (
+            double_sample if isinstance(double_sample, dict) else {}
+        ),
+    }
+
+    try:
+        from server import PromptServer  # ComfyUI runtime
+
+        PromptServer.instance.send_sync("pm4a_settings_apply", payload)
+    except Exception as exc:
+        logger.exception("settings-apply send_sync failed")
+        return _json_error(tr("发送失败：{error}", error=exc), 500)
+
+    return web.json_response({"success": True, "apply": apply})
+
+
 async def handle_append_slot(request: web.Request) -> web.Response:
     """Broadcast an append or replacement into a Prompt Scheduler slot."""
     try:

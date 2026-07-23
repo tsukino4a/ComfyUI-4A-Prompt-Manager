@@ -81,6 +81,16 @@
       "8": {"name": "Parameters JSON", "tooltip": "Portable JSON metadata containing the primary sampling parameters."}
     }
   },
+  "Bypass Switch (4A Prompt Manager)": {
+    "display_name": "Bypass Switch (4A Prompt Manager)",
+    "description": "Wire nodes you want to control into the inputs. When enabled is false those nodes are set to Bypass; when true they return to Always. Useful for toggling a second-sample subgraph.",
+    "inputs": {
+      "enabled": {"name": "Enabled", "tooltip": "When on, connected nodes run normally; when off, they are bypassed."}
+    },
+    "outputs": {
+      "0": {"name": "Enabled", "tooltip": "Current enabled state."}
+    }
+  },
   "Double Sample Parameters (4A Prompt Manager)": {
     "display_name": "Double Sample Parameters (4A Prompt Manager)",
     "description": "Outputs second-pass sampler parameters and self-identifying JSON for Image Saver's parameters_json input.",

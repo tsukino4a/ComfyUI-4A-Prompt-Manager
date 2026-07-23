@@ -1,17 +1,26 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { configureComfyI18n, pm4aFetch, t } from "./i18n.js?v=3";
-import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js";
+import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js?v=compact-labels-2";
 import { attachAutocompletePlus } from "./autocomplete_plus_attach.js?v=1";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 import {
+  TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY,
   TARGET_LORA_PROPERTY,
+  TARGET_PARAMETERS_PROPERTY,
+  applySettingsPlanFromPayload,
+  doubleSampleParameterNodes,
+  findBypassSwitchTarget,
+  findDoubleSampleParametersTarget,
+  findInputParametersTarget,
   findLoraLoaderTarget,
+  inputParameterNodes,
   loraLoaderNodes,
   mergeLoraAppendText,
+  modelGroupKey,
   readLoraLoaderText,
   writeLoraLoaderText,
-} from "./meta_apply_core.js?v=1";
+} from "./meta_apply_core.js?v=9";
 
 const NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
 const TRACK_INPUT_PREFIX = "pm4a_track_";
@@ -67,6 +76,8 @@ function defaultConfig() {
     negative_collapsed: false,
     lora_append: false,
     lora_group_same: false,
+    settings_apply_models: false,
+    settings_apply_parameters: false,
     tracks: [
       defaultTrack("quality", "质量"),
       defaultTrack("character", "角色"),
@@ -116,8 +127,54 @@ function normalizeConfig(value) {
       : null,
     lora_append: Boolean(raw.lora_append),
     lora_group_same: Boolean(raw.lora_group_same),
+    settings_apply_models: Boolean(raw.settings_apply_models),
+    // Old configs may only have settings_apply_double_sample; fold into parameters.
+    settings_apply_parameters: Boolean(
+      raw.settings_apply_parameters || raw.settings_apply_double_sample,
+    ),
     tracks: normalizedTracks,
   };
+}
+
+function settingsApplyEnabled(config) {
+  return Boolean(config?.settings_apply_models || config?.settings_apply_parameters);
+}
+
+function reloadGroupEnabled(config) {
+  return Boolean(config?.lora_append || config?.settings_apply_models);
+}
+
+function snapshotNodeWidgets(target) {
+  if (!target?.widgets) return null;
+  return {
+    id: target.id,
+    values: target.widgets.map((widget) => ({
+      name: widget.name,
+      value: widget.value,
+    })),
+  };
+}
+
+/** Restore widgets from a baseline snapshot. Skip seed so control_after_generate
+ * (randomize/increment) can keep advancing between queue items. */
+function restoreNodeWidgets(snapshot, graph, { skipNames = ["seed"] } = {}) {
+  if (!snapshot) return;
+  const node = graph?.getNodeById?.(snapshot.id)
+    || graph?.getNodeById?.(Number(snapshot.id));
+  if (!node?.widgets) return;
+  const skip = new Set(skipNames);
+  for (const entry of snapshot.values || []) {
+    if (skip.has(entry.name)) continue;
+    const widget = node.widgets.find((item) => item.name === entry.name);
+    if (!widget) continue;
+    widget.value = entry.value;
+    if (widget.inputEl) widget.inputEl.value = entry.value;
+    if (Array.isArray(node.widgets_values)) {
+      const index = node.widgets.indexOf(widget);
+      if (index >= 0) node.widgets_values[index] = entry.value;
+    }
+  }
+  node.setDirtyCanvas?.(true, true);
 }
 
 function seedWidgetValue(node) {
@@ -440,14 +497,14 @@ app.registerExtension({
       loraGroupCheckbox.type = "checkbox";
       loraGroupCheckbox.checked = Boolean(config.lora_group_same);
       const loraGroupToggleText = document.createElement("span");
-      loraGroupToggleText.textContent = t("相同 LoRA 连跑");
-      loraGroupToggle.title = t("批量运行时把相同 LoRA 的任务排在一起，减少换 LoRA 导致的模型重载");
+      loraGroupToggleText.textContent = t("相同模型/LoRA 连跑");
+      loraGroupToggle.title = t("批量运行时把相同模型与 LoRA 的任务排在一起（先模型后 LoRA），减少换模型/LoRA 导致的重载");
       loraGroupToggle.append(loraGroupCheckbox, loraGroupToggleText);
       const loraTarget = document.createElement("select");
       loraTarget.className = "pm4a-scheduler-lora-target";
       loraTarget.title = t("选择 LoRA Loader");
       const syncLoraGroupToggle = () => {
-        const enabled = Boolean(config.lora_append);
+        const enabled = reloadGroupEnabled(config);
         loraGroupCheckbox.disabled = !enabled;
         loraGroupToggle.classList.toggle("disabled", !enabled);
         loraGroupCheckbox.checked = Boolean(config.lora_group_same);
@@ -481,7 +538,7 @@ app.registerExtension({
         persist();
       });
       loraGroupCheckbox.addEventListener("change", () => {
-        if (!config.lora_append) {
+        if (!reloadGroupEnabled(config)) {
           loraGroupCheckbox.checked = Boolean(config.lora_group_same);
           return;
         }
@@ -494,6 +551,99 @@ app.registerExtension({
       });
       refreshLoraTargets();
       loraRow.append(loraToggle, loraGroupToggle, loraTarget);
+
+      const settingsRow = document.createElement("div");
+      settingsRow.className = "pm4a-scheduler-lora-row";
+      const makeSettingsToggle = (key, label, title) => {
+        const toggle = document.createElement("label");
+        toggle.className = "pm4a-scheduler-lora-toggle";
+        toggle.title = title;
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = Boolean(config[key]);
+        const text = document.createElement("span");
+        text.textContent = label;
+        toggle.append(checkbox, text);
+        checkbox.addEventListener("change", () => {
+          config[key] = checkbox.checked;
+          refreshSettingsTargets();
+          persist();
+        });
+        return { toggle, checkbox };
+      };
+      const modelsToggle = makeSettingsToggle(
+        "settings_apply_models",
+        t("自动应用模型"),
+        t("Wildcard 卡片含模型时，入队前写入 Checkpoint/UNet"),
+      );
+      const parametersToggle = makeSettingsToggle(
+        "settings_apply_parameters",
+        t("自动应用推理参数"),
+        t("Wildcard 卡片含推理参数/宽高/双采样时，入队前写入参数节点，并按有无双采样开关 Bypass Switch"),
+      );
+      const parametersTarget = document.createElement("select");
+      parametersTarget.className = "pm4a-scheduler-lora-target";
+      parametersTarget.title = t("选择参数节点");
+      const doubleSampleTarget = document.createElement("select");
+      doubleSampleTarget.className = "pm4a-scheduler-lora-target";
+      doubleSampleTarget.title = t("选择双采样参数节点");
+      const fillTargetSelect = (select, targets, property, placeholder) => {
+        const previous = String(node.properties?.[property] || "");
+        select.replaceChildren();
+        if (targets.length > 1) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = placeholder;
+          select.appendChild(option);
+        }
+        for (const target of targets) {
+          const option = document.createElement("option");
+          option.value = String(target.id);
+          option.textContent = target.title || `#${target.id}`;
+          select.appendChild(option);
+        }
+        const remembered = targets.find((target) => String(target.id) === previous);
+        if (remembered) select.value = previous;
+        else if (targets.length === 1) select.value = String(targets[0].id);
+        else select.value = "";
+      };
+      const refreshSettingsTargets = () => {
+        node.properties = node.properties || {};
+        fillTargetSelect(
+          parametersTarget,
+          inputParameterNodes(node.graph || app.graph),
+          TARGET_PARAMETERS_PROPERTY,
+          t("选择参数节点"),
+        );
+        fillTargetSelect(
+          doubleSampleTarget,
+          doubleSampleParameterNodes(node.graph || app.graph),
+          TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY,
+          t("选择双采样参数节点"),
+        );
+        parametersTarget.hidden = !config.settings_apply_parameters
+          || inputParameterNodes(node.graph || app.graph).length < 2;
+        doubleSampleTarget.hidden = !config.settings_apply_parameters
+          || doubleSampleParameterNodes(node.graph || app.graph).length < 2;
+        modelsToggle.checkbox.checked = Boolean(config.settings_apply_models);
+        parametersToggle.checkbox.checked = Boolean(config.settings_apply_parameters);
+        syncLoraGroupToggle();
+      };
+      parametersTarget.addEventListener("change", () => {
+        node.properties = node.properties || {};
+        node.properties[TARGET_PARAMETERS_PROPERTY] = parametersTarget.value;
+      });
+      doubleSampleTarget.addEventListener("change", () => {
+        node.properties = node.properties || {};
+        node.properties[TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY] = doubleSampleTarget.value;
+      });
+      refreshSettingsTargets();
+      settingsRow.append(
+        modelsToggle.toggle,
+        parametersToggle.toggle,
+        parametersTarget,
+        doubleSampleTarget,
+      );
 
       const trackList = document.createElement("div");
       trackList.className = "pm4a-track-list";
@@ -523,7 +673,7 @@ app.registerExtension({
       });
       negativeTitle.append(negativeCollapse, negativeTitleText);
       negative.append(negativeTitle, negativeInput);
-      main.append(loraRow, controls, trackList, addButton, negative);
+      main.append(loraRow, settingsRow, controls, trackList, addButton, negative);
 
       let disconnectingInternalInputs = false;
       const disconnectInternalInputs = () => {
@@ -706,6 +856,7 @@ app.registerExtension({
         loraCheckbox.checked = Boolean(config.lora_append);
         loraGroupCheckbox.checked = Boolean(config.lora_group_same);
         refreshLoraTargets();
+        refreshSettingsTargets();
         if (!restoring) persist();
         renderNegative();
         renderTracks({ removeStaleInputs: !restoring });
@@ -721,10 +872,88 @@ app.registerExtension({
         return findLoraLoaderTarget(node);
       }
 
+      function rememberSettingsTargets() {
+        node.properties = node.properties || {};
+        if (parametersTarget.value) {
+          node.properties[TARGET_PARAMETERS_PROPERTY] = parametersTarget.value;
+        }
+        if (doubleSampleTarget.value) {
+          node.properties[TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY] = doubleSampleTarget.value;
+        }
+      }
+
+      function captureSettingsBaseline() {
+        rememberSettingsTargets();
+        const graph = node.graph || app.graph;
+        const baseline = {
+          parameters: null,
+          doubleSample: null,
+          bypass: null,
+          models: [],
+        };
+        if (config.settings_apply_parameters) {
+          baseline.parameters = snapshotNodeWidgets(findInputParametersTarget(node));
+          baseline.doubleSample = snapshotNodeWidgets(findDoubleSampleParametersTarget(node));
+          const bypass = findBypassSwitchTarget(node);
+          baseline.bypass = bypass?.__pm4aBypassSwitchSnapshot?.() || null;
+        }
+        if (config.settings_apply_models) {
+          for (const candidate of graph?._nodes || graph?.nodes || []) {
+            for (const widgetName of ["ckpt_name", "unet_name"]) {
+              const widget = candidate?.widgets?.find((item) => item.name === widgetName);
+              if (!widget) continue;
+              baseline.models.push({
+                id: candidate.id,
+                widgetName,
+                value: widget.value,
+              });
+            }
+          }
+        }
+        return baseline;
+      }
+
+      function restoreSettingsBaseline(baseline) {
+        if (!baseline) return;
+        const graph = node.graph || app.graph;
+        restoreNodeWidgets(baseline.parameters, graph);
+        restoreNodeWidgets(baseline.doubleSample, graph);
+        const bypass = findBypassSwitchTarget(node);
+        if (baseline.bypass && bypass?.__pm4aBypassSwitchRestore) {
+          bypass.__pm4aBypassSwitchRestore(baseline.bypass);
+        }
+        for (const entry of baseline.models || []) {
+          const target = graph?.getNodeById?.(entry.id)
+            || graph?.getNodeById?.(Number(entry.id));
+          const widget = target?.widgets?.find((item) => item.name === entry.widgetName);
+          if (!widget) continue;
+          widget.value = entry.value;
+          if (widget.inputEl) widget.inputEl.value = entry.value;
+          if (Array.isArray(target.widgets_values)) {
+            const index = target.widgets.indexOf(widget);
+            if (index >= 0) target.widgets_values[index] = entry.value;
+          }
+        }
+        graph?.setDirtyCanvas?.(true, true);
+        graph?.change?.();
+      }
+
+      async function applySettingsPlan(plan) {
+        if (!settingsApplyEnabled(config) || !plan) return;
+        rememberSettingsTargets();
+        const { errors } = await applySettingsPlanFromPayload(node, plan, {
+          applyModels: Boolean(config.settings_apply_models),
+          applyParameters: Boolean(config.settings_apply_parameters),
+        });
+        for (const error of errors) {
+          console.warn("[4A Scheduler]", error);
+        }
+      }
+
       function applyLoraAppendText(loader, baseText, appendText) {
-        const next = mergeLoraAppendText(baseText, appendText);
-        if (next === baseText) return false;
-        return writeLoraLoaderText(loader, next);
+        // Always write: empty append must restore baseline so the previous
+        // card's LoRAs do not stick across batch items.
+        return writeLoraLoaderText(loader, mergeLoraAppendText(baseText, appendText));
       }
 
       function renderNegative() {
@@ -1063,6 +1292,7 @@ app.registerExtension({
         oneRoundButton.disabled = true;
         let loader = null;
         let baseLoraText = "";
+        let settingsBaseline = null;
         try {
           const data = await fetchJson("/pm4a/api/scheduler/prepare", {
             config,
@@ -1070,6 +1300,7 @@ app.registerExtension({
             seed: resolveSchedulerSeed(node),
           });
           const loraPlans = Array.isArray(data.lora_plans) ? data.lora_plans : [];
+          const settingsPlans = Array.isArray(data.settings_plans) ? data.settings_plans : [];
           if (config.lora_append) {
             refreshLoraTargets();
             loader = resolveLoraLoaderForAppend();
@@ -1083,6 +1314,10 @@ app.registerExtension({
             } else {
               baseLoraText = readLoraLoaderText(loader);
             }
+          }
+          if (settingsApplyEnabled(config)) {
+            refreshSettingsTargets();
+            settingsBaseline = captureSettingsBaseline();
           }
           batchState = {
             runId: data.run_id,
@@ -1099,11 +1334,21 @@ app.registerExtension({
             );
             return typeof plan?.append_text === "string" ? plan.append_text : "";
           };
-          const queueOrder = (config.lora_append && config.lora_group_same)
+          const settingsPlan = (executionIndex) => settingsPlans.find(
+            (entry) => Number(entry?.execution_index) === executionIndex,
+          );
+          const queueOrder = (config.lora_group_same && reloadGroupEnabled(config))
             ? [...indices].sort((left, right) => {
-              const leftText = planText(left);
-              const rightText = planText(right);
-              if (leftText !== rightText) return leftText < rightText ? -1 : 1;
+              const leftModel = config.settings_apply_models
+                ? modelGroupKey(settingsPlan(left))
+                : "";
+              const rightModel = config.settings_apply_models
+                ? modelGroupKey(settingsPlan(right))
+                : "";
+              if (leftModel !== rightModel) return leftModel < rightModel ? -1 : 1;
+              const leftLora = config.lora_append ? planText(left) : "";
+              const rightLora = config.lora_append ? planText(right) : "";
+              if (leftLora !== rightLora) return leftLora < rightLora ? -1 : 1;
               return left - right;
             })
             : indices;
@@ -1114,12 +1359,17 @@ app.registerExtension({
             if (loader) {
               applyLoraAppendText(loader, baseLoraText, planText(executionIndex));
             }
+            if (settingsBaseline) {
+              restoreSettingsBaseline(settingsBaseline);
+              await applySettingsPlan(settingsPlan(executionIndex));
+            }
             await app.queuePrompt(0);
           }
         } catch (error) {
           console.error("[4A Scheduler] Failed to queue batch", error);
         } finally {
           if (loader) writeLoraLoaderText(loader, baseLoraText);
+          if (settingsBaseline) restoreSettingsBaseline(settingsBaseline);
           batchState = null;
           indexWidget.value = config.start_index;
           runWidget.value = "";
@@ -1146,7 +1396,8 @@ app.registerExtension({
           const active = findSchedulerNodes().filter((candidate) => {
             const widget = candidate.widgets?.find((entry) => entry?.name === "config_json");
             const conf = normalizeConfig(widget?.value);
-            return conf.lora_append && !candidate.__pm4aSchedulerBatchState?.skipQueueHook;
+            const needsHook = conf.lora_append || settingsApplyEnabled(conf);
+            return needsHook && !candidate.__pm4aSchedulerBatchState?.skipQueueHook;
           });
           if (!active.length) return originalQueuePrompt(...args);
 
@@ -1178,12 +1429,47 @@ app.registerExtension({
                     seed: resolveSchedulerSeed(schedulerNode),
                   });
                   const runId = data.run_id || "";
-                  const appendText = data.lora_plans?.[0]?.append_text || "";
-                  const loader = findLoraLoaderTarget(schedulerNode);
+                  const appendText = conf.lora_append
+                    ? (data.lora_plans?.[0]?.append_text || "")
+                    : "";
+                  const loader = conf.lora_append ? findLoraLoaderTarget(schedulerNode) : null;
                   const baseLoraText = loader ? readLoraLoaderText(loader) : "";
                   const nextLoraText = loader && appendText
                     ? mergeLoraAppendText(baseLoraText, appendText)
                     : baseLoraText;
+                  const settingsPlan = settingsApplyEnabled(conf)
+                    ? (data.settings_plans?.[0] || null)
+                    : null;
+                  let settingsBaseline = null;
+                  if (settingsPlan) {
+                    settingsBaseline = {
+                      parameters: snapshotNodeWidgets(findInputParametersTarget(schedulerNode)),
+                      doubleSample: snapshotNodeWidgets(
+                        findDoubleSampleParametersTarget(schedulerNode),
+                      ),
+                      bypass: findBypassSwitchTarget(schedulerNode)
+                        ?.__pm4aBypassSwitchSnapshot?.() || null,
+                      models: [],
+                    };
+                    const graph = schedulerNode.graph || app.graph;
+                    for (const candidate of graph?._nodes || graph?.nodes || []) {
+                      for (const widgetName of ["ckpt_name", "unet_name"]) {
+                        const modelWidget = candidate?.widgets?.find(
+                          (item) => item.name === widgetName,
+                        );
+                        if (!modelWidget) continue;
+                        settingsBaseline.models.push({
+                          id: candidate.id,
+                          widgetName,
+                          value: modelWidget.value,
+                        });
+                      }
+                    }
+                    await applySettingsPlanFromPayload(schedulerNode, settingsPlan, {
+                      applyModels: Boolean(conf.settings_apply_models),
+                      applyParameters: Boolean(conf.settings_apply_parameters),
+                    });
+                  }
                   const previousRunId = runWidgetLocal?.value;
                   const previousBeforeQueued = runWidgetLocal?.beforeQueued;
                   const applyForSerialize = () => {
@@ -1206,9 +1492,10 @@ app.registerExtension({
                     previousBeforeQueued,
                     loader,
                     baseLoraText,
+                    settingsBaseline,
                   });
                 } catch (error) {
-                  console.warn("[4A Scheduler] LoRA append skipped for single queue", error);
+                  console.warn("[4A Scheduler] settings/LoRA append skipped for single queue", error);
                 }
               }
             }
@@ -1221,6 +1508,25 @@ app.registerExtension({
                   writeRunId(entry.schedulerNode, entry.runWidgetLocal, entry.previousRunId);
                 }
                 if (entry.loader) writeLoraLoaderText(entry.loader, entry.baseLoraText);
+                if (entry.settingsBaseline) {
+                  const graph = entry.schedulerNode.graph || app.graph;
+                  restoreNodeWidgets(entry.settingsBaseline.parameters, graph);
+                  restoreNodeWidgets(entry.settingsBaseline.doubleSample, graph);
+                  const bypass = findBypassSwitchTarget(entry.schedulerNode);
+                  if (entry.settingsBaseline.bypass && bypass?.__pm4aBypassSwitchRestore) {
+                    bypass.__pm4aBypassSwitchRestore(entry.settingsBaseline.bypass);
+                  }
+                  for (const model of entry.settingsBaseline.models || []) {
+                    const target = graph?.getNodeById?.(model.id)
+                      || graph?.getNodeById?.(Number(model.id));
+                    const modelWidget = target?.widgets?.find(
+                      (item) => item.name === model.widgetName,
+                    );
+                    if (!modelWidget) continue;
+                    modelWidget.value = model.value;
+                    if (modelWidget.inputEl) modelWidget.inputEl.value = model.value;
+                  }
+                }
               }
             }
             queueHookDepth -= 1;

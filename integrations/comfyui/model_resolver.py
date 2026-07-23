@@ -114,16 +114,31 @@ def _file_sha256(path: Path) -> str:
     return value
 
 
+def _hash_from_sidecars(path: Path) -> str:
+    """Prefer .sha256 text sidecar, then LM / Comfy metadata.json sha256."""
+    sidecar = path.with_suffix(".sha256")
+    try:
+        value = _hash_text(sidecar.read_text(encoding="utf-8").split()[0])
+        if value:
+            return value
+    except (OSError, IndexError):
+        pass
+    meta = path.with_suffix(".metadata.json")
+    try:
+        payload = json.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return _hash_text(payload.get("sha256", ""))
+
+
 def _hash_index(index: dict[str, Any]) -> dict[str, list[str]]:
     if index["hashes"] is not None:
         return index["hashes"]
     hashes: dict[str, list[str]] = {}
     for _category, filename, path in index["files"]:
-        sidecar = path.with_suffix(".sha256")
-        try:
-            value = _hash_text(sidecar.read_text(encoding="utf-8").split()[0])
-        except (OSError, IndexError):
-            continue
+        value = _hash_from_sidecars(path)
         if value:
             hashes.setdefault(value, []).append(filename)
     index["hashes"] = hashes
@@ -153,6 +168,30 @@ def _ensure_hash_for_lookup(index: dict[str, Any], wanted_hash: str) -> None:
         known_files.add(filename)
         if value.startswith(wanted) or wanted.startswith(value):
             return
+
+
+def _hash_for_filename(index: dict[str, Any], filename: str) -> str:
+    """Return sha256 for a known index filename (sidecar/metadata, else compute)."""
+    wanted = str(filename or "")
+    if not wanted:
+        return ""
+    hashes = _hash_index(index)
+    for full_hash, filenames in hashes.items():
+        if wanted in filenames:
+            return full_hash
+    for _category, name, path in index["files"]:
+        if name != wanted:
+            continue
+        value = _hash_from_sidecars(path)
+        if not value:
+            try:
+                value = _hash_text(_file_sha256(path))
+            except OSError:
+                value = ""
+        if value:
+            hashes.setdefault(value, []).append(name)
+        return value
+    return ""
 
 
 def lora_tag_name(filename: str) -> str:
@@ -223,32 +262,17 @@ def resolve_model(
     exact = _first_exact(index, name)
     if exact:
         result = {"value": exact, "match": "name", "widget_name": widget_name}
+        matched_hash = _hash_for_filename(index, exact)
+        if matched_hash:
+            result["matched_hash"] = matched_hash
         if widget_name == "lora_name":
             result["tag_name"] = lora_tag_name(exact)
-            hashes = _hash_index(index)
-            matched_hash = next(
-                (full_hash for full_hash, filenames in hashes.items() if exact in filenames),
-                "",
-            )
-            if not matched_hash:
-                for _category, filename, path in index["files"]:
-                    if filename != exact:
-                        continue
-                    try:
-                        matched_hash = _hash_text(_file_sha256(path))
-                    except OSError:
-                        matched_hash = ""
-                    if matched_hash:
-                        hashes.setdefault(matched_hash, []).append(filename)
-                    break
-            if matched_hash:
-                result["matched_hash"] = matched_hash
         return result
 
     wanted_hash = _hash_text(hash_value)
     if len(wanted_hash) >= 8:
-        if widget_name == "lora_name":
-            _ensure_hash_for_lookup(index, wanted_hash)
+        # Sidecar / metadata.json first; compute file digests only if still missing.
+        _ensure_hash_for_lookup(index, wanted_hash)
         matches: list[tuple[str, str]] = []
         for full_hash, filenames in _hash_index(index).items():
             if full_hash.startswith(wanted_hash) or wanted_hash.startswith(full_hash):
@@ -269,12 +293,17 @@ def resolve_model(
     if wanted_version and widget_name != "lora_name":
         version_matches = _version_index(index).get(wanted_version, [])
         if version_matches:
-            return {
-                "value": version_matches[0],
+            filename = version_matches[0]
+            result = {
+                "value": filename,
                 "match": "version",
                 "matched_model_version_id": wanted_version,
                 "widget_name": widget_name,
             }
+            matched_hash = _hash_for_filename(index, filename)
+            if matched_hash:
+                result["matched_hash"] = matched_hash
+            return result
 
     kind = tr("LoRA") if widget_name == "lora_name" else tr("模型")
     if len(wanted_hash) >= 8 or wanted_version:
@@ -297,6 +326,93 @@ def resolve_lora(
         hash_value=hash_value,
         folder_paths_module=folder_paths_module,
     )
+
+
+def _hash_matches(wanted_hash: str, matched_hash: str) -> bool:
+    wanted = _hash_text(wanted_hash)
+    matched = _hash_text(matched_hash)
+    if len(wanted) < 8 or not matched:
+        return False
+    if len(wanted) >= 64:
+        return wanted == matched
+    return matched.startswith(wanted) or wanted.startswith(matched)
+
+
+def align_models_list(
+    models: list[dict[str, Any]] | None,
+    *,
+    folder_paths_module: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Rewrite model entries to local stem + full sha256 when uniquely resolvable.
+
+    Rules match the browser helper:
+    - hash present → only hash match may rewrite (no name fallback)
+    - no hash → name / version match may rewrite
+    """
+    if not isinstance(models, list):
+        return []
+    aligned: list[dict[str, Any]] = []
+    seen_types: set[str] = set()
+    for entry in models:
+        if not isinstance(entry, dict):
+            continue
+        model_type = str(entry.get("type", "")).strip()
+        name = str(entry.get("name", "")).strip()
+        digest = _hash_text(entry.get("hash", ""))
+        version = str(entry.get("model_version_id", "") or "").strip()
+        if not model_type or not name:
+            continue
+        type_key = model_type.casefold()
+        if type_key in seen_types:
+            continue
+        seen_types.add(type_key)
+        item: dict[str, Any] = {"type": model_type, "name": name}
+        if digest:
+            item["hash"] = digest
+        if version:
+            item["model_version_id"] = version
+
+        resolved: dict[str, str] | None = None
+        if len(digest) >= 8:
+            for widget_name in ("unet_name", "ckpt_name"):
+                try:
+                    data = resolve_model(
+                        widget_name,
+                        name="",
+                        hash_value=digest,
+                        folder_paths_module=folder_paths_module,
+                    )
+                except LookupError:
+                    continue
+                if data.get("match") == "hash" and _hash_matches(
+                    digest, data.get("matched_hash", "")
+                ):
+                    resolved = data
+                    break
+        else:
+            for widget_name in ("unet_name", "ckpt_name"):
+                try:
+                    data = resolve_model(
+                        widget_name,
+                        name=name,
+                        hash_value="",
+                        model_version_id=version,
+                        folder_paths_module=folder_paths_module,
+                    )
+                except LookupError:
+                    continue
+                resolved = data
+                break
+
+        if resolved:
+            stem = lora_tag_name(resolved.get("value", ""))
+            if stem:
+                item["name"] = stem
+            matched = _hash_text(resolved.get("matched_hash", ""))
+            if matched:
+                item["hash"] = matched
+        aligned.append(item)
+    return aligned
 
 
 def remap_lora_payload(
