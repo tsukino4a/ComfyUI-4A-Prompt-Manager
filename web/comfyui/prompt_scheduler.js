@@ -475,7 +475,7 @@ app.registerExtension({
       const taskInput = makeNumberField(t("任务数量"), "task_count", 1);
       const oneRoundButton = document.createElement("button");
       oneRoundButton.textContent = t("统计数量");
-      oneRoundButton.title = t("按顺序栏目的最长文件夹统计任务数量");
+      oneRoundButton.title = t("按顺序栏目统计任务数量（含嵌套通配符完整周期）");
       const runButton = document.createElement("button");
       runButton.className = "pm4a-scheduler-run";
       runButton.textContent = t("批量运行");

@@ -45,6 +45,8 @@ except ImportError:  # standalone preview
 TRACK_MODES = {"sequence", "random", "shuffle"}
 RUN_TTL_SECONDS = 24 * 60 * 60
 MAX_CACHED_RUNS = 128
+# Cap dry-run probes when measuring nested sequential cycles.
+MAX_SEQUENCE_CYCLE_PROBE = 5000
 
 _run_lock = threading.RLock()
 _runs: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
@@ -134,27 +136,40 @@ def wildcard_keys(text: str) -> list[str]:
     )
 
 
-def track_folder_keys(track: dict[str, Any]) -> list[str]:
+def _is_sequenceable_key(
+    key: str, resolver: LibraryWildcardResolver
+) -> bool:
+    """True when a wildcard key exposes more than one sequential candidate."""
+    if key in resolver.folder_entry_keys and key not in resolver.file_dict:
+        return True
+    return len(resolver.file_dict.get(key, ())) > 1
+
+
+def track_folder_keys(
+    track: dict[str, Any],
+    resolver: Optional[LibraryWildcardResolver] = None,
+) -> list[str]:
     """Keep wildcard tokens that expose a sequenceable candidate pool."""
-    resolver = prompt_library.snapshot_resolver()
+    active = resolver or prompt_library.snapshot_resolver()
     return [
         key
         for key in wildcard_keys(track.get("text", ""))
-        if (
-            (key in resolver.folder_entry_keys and key not in resolver.file_dict)
-            or len(resolver.file_dict.get(key, ())) > 1
-        )
+        if _is_sequenceable_key(key, active)
     ]
 
 
-def config_folder_keys(config: Any) -> list[str]:
+def config_folder_keys(
+    config: Any,
+    resolver: Optional[LibraryWildcardResolver] = None,
+) -> list[str]:
     clean = normalize_config(config)
+    active = resolver or prompt_library.snapshot_resolver()
     return list(
         dict.fromkeys(
             key
             for track in clean["tracks"]
             if track["enabled"]
-            for key in track_folder_keys(track)
+            for key in track_folder_keys(track, resolver=active)
         )
     )
 
@@ -193,25 +208,119 @@ def snapshot_folders(
     }
 
 
-def folder_counts(folder_keys: Iterable[str]) -> dict[str, int]:
-    snapshots = snapshot_folders(folder_keys)
-    return {key: len(entries) for key, entries in snapshots.items()}
+def folder_counts(
+    folder_keys: Iterable[str],
+    resolver: Optional[LibraryWildcardResolver] = None,
+) -> dict[str, int]:
+    """Return option counts for folder/file wildcard keys."""
+    folders = list(
+        dict.fromkeys(
+            normalize_key(key)
+            for key in folder_keys
+            if isinstance(key, str) and key.strip()
+        )
+    )
+    if not folders:
+        return {}
+    active = resolver or prompt_library.snapshot_resolver()
+    return {key: int(active.option_count(key)) for key in folders}
+
+
+def _selection_fingerprint(result: Any) -> tuple[Any, ...]:
+    """Fingerprint one expansion for sequential cycle detection.
+
+    selected_keys alone is not enough: multi-line TXT options share one file
+    key, so include resolved text / negatives / LoRA texts as well.
+    """
+    return (
+        tuple(result.selected_keys),
+        result.text,
+        tuple(result.negatives),
+        tuple(result.lora_texts),
+    )
+
+
+def sequence_cycle_length(
+    text: str,
+    *,
+    resolver: LibraryWildcardResolver,
+    seed: int = 0,
+    track_id: str = "",
+    max_probe: int = MAX_SEQUENCE_CYCLE_PROBE,
+) -> int:
+    """Return the nested sequential period for one track text.
+
+    Dry-runs expansion with increasing execution_index until the index-0
+    selection fingerprint repeats. Returns 0 when probing fails so callers
+    can fall back to top-level folder sizes.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return 0
+    if not wildcard_keys(text):
+        return 0
+
+    limit = max(1, int(max_probe))
+    fingerprint0: tuple[Any, ...] | None = None
+    for index in range(0, limit + 1):
+        try:
+            result = expand_prompt(
+                text,
+                resolver=resolver,
+                seed=int(seed),
+                mode="sequence",
+                execution_index=index,
+                track_id=track_id,
+            )
+        except Exception:
+            return 0
+        fingerprint = _selection_fingerprint(result)
+        if index == 0:
+            if not result.selected_keys:
+                return 0
+            fingerprint0 = fingerprint
+            continue
+        if fingerprint == fingerprint0:
+            return index
+    return limit
 
 
 def cycle_summary(config: Any) -> dict[str, Any]:
-    """Count folder tokens and compute the longest sequential column."""
+    """Count top-level folders and the longest nested sequential cycle."""
     clean = normalize_config(config)
-    folders = config_folder_keys(clean)
-    counts = folder_counts(folders)
-    sequence_counts = [
-        counts.get(key, 0)
-        for track in clean["tracks"]
-        if track["enabled"] and track["mode"] == "sequence"
-        for key in track_folder_keys(track)
-    ]
+    resolver = prompt_library.snapshot_resolver()
+    folders = list(
+        dict.fromkeys(
+            key
+            for track in clean["tracks"]
+            if track["enabled"]
+            for key in track_folder_keys(track, resolver=resolver)
+        )
+    )
+    counts = folder_counts(folders, resolver=resolver)
+
+    sequence_lengths: list[int] = []
+    for track in clean["tracks"]:
+        if not track["enabled"] or track["mode"] != "sequence":
+            continue
+        nested = sequence_cycle_length(
+            track["text"],
+            resolver=resolver,
+            track_id=track["id"],
+        )
+        if nested > 0:
+            sequence_lengths.append(nested)
+            continue
+        top_level = [
+            counts.get(key, 0)
+            for key in track_folder_keys(track, resolver=resolver)
+            if counts.get(key, 0) > 0
+        ]
+        if top_level:
+            sequence_lengths.append(max(top_level))
+
     return {
         "counts": counts,
-        "maximum": max(sequence_counts, default=0),
+        "maximum": max(sequence_lengths, default=0),
     }
 
 

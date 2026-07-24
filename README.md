@@ -7,7 +7,7 @@ Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
-**Current release: 1.2.0** — card generation settings, Bypass Switch for second pass, Wildcard auto-apply for LoRAs/models/params, and batch grouping for the same LoRA stack.
+**Current release: 1.2.1** — nested Wildcard task counting (Count tasks uses the real nested sequential cycle), plus 1.2.0 card settings / Bypass Switch / Wildcard auto-apply.
 
 ![Hero overview](docs/images/hero.png)
 
@@ -28,6 +28,8 @@ JSON cards can sparsely store LoRAs, models, sampler settings (including seed/si
 ### Multi-track Prompt Scheduler
 
 Stack positives across tracks with random / sequence / shuffle, Impact-compatible wildcard parsing (`__key__`, `{a|b}`, weights, multi-select, folder and global name lookup), and optional STRING inputs wired into each track from the graph.
+
+**Nested wildcards (great for automation):** a card’s `content` / `negative` may itself contain `__folder__` / `__path/file__`. Expanding the outer card recursively resolves inner refs and carries along nested LoRAs, negatives, and sparse generation settings. A common pattern is “outer cards = LoRAs/presets to compare; inner `__scenes__` = shared prompts”—one sequential Scheduler pass sweeps the matrix. **Count tasks** fills the job count from the **real nested cycle** (e.g. 3 outer × 10 inner → 30), not just the top-level folder size.
 
 ![Scheduler](docs/images/scheduler.png)
 
