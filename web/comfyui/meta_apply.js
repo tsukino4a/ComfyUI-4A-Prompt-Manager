@@ -4,6 +4,7 @@ import { parsePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=17"
 import {
   fetchImageFile,
   hasSupportedImageTransfer,
+  imageFileFromTransfer,
   looksLikeImageFile,
 } from "/pm4a/static/image_drop.js?v=3";
 import {
@@ -169,8 +170,9 @@ function setupMetaApplyNode(node) {
   status.textContent = t("等待图片");
   main.append(status);
 
-  let busy = false;
   let acceptWidgetChanges = false;
+  /** Monotonic id so a newer drop/selection can supersede an in-flight apply. */
+  let applyGeneration = 0;
   /** Last image combo value restored/applied; blocks workflow-restore echoes. */
   let armedImageValue = null;
   /**
@@ -196,23 +198,23 @@ function setupMetaApplyNode(node) {
   };
 
   const applyImage = async (file) => {
-    if (busy) return;
     if (!looksLikeImageFile(file)) {
       setStatus(t("仅支持常见图片格式（PNG、JPEG、WebP、GIF 等）"));
       return;
     }
-    busy = true;
+    const generation = ++applyGeneration;
     setStatus(t("正在读取并应用元数据…"));
     try {
       const snapshot = await readImagePromptSnapshot(file);
+      if (generation !== applyGeneration) return;
       const payload = parsePromptDocument(snapshot.promptJson);
       if (!payload) throw new Error(t("图片中没有识别到正面或负面提示词"));
       const result = await applyAllFromPayload(node, payload, readApplyFlags(node));
+      if (generation !== applyGeneration) return;
       setStatus(result.message);
     } catch (error) {
+      if (generation !== applyGeneration) return;
       setStatus(String(error.message || error));
-    } finally {
-      busy = false;
     }
   };
 
@@ -229,13 +231,13 @@ function setupMetaApplyNode(node) {
     armImageValue(value);
   };
 
-  const maybeApplyFromWidget = (value, { forceSame = false } = {}) => {
+  const maybeApplyFromWidget = (value) => {
     if (!acceptWidgetChanges) return;
     const next = normalizeImageValue(value);
     const sameAsArmed = next === armedImageValue;
     // Workflow restore replays the same combo → skip. User drop/re-pick sets
-    // allowSameImageApply (or forceSame after drop) so same path still applies.
-    if (sameAsArmed && !allowSameImageApply && !forceSame) return;
+    // allowSameImageApply so the same path still applies.
+    if (sameAsArmed && !allowSameImageApply) return;
     allowSameImageApply = false;
     if (!next) {
       armImageValue("");
@@ -267,16 +269,29 @@ function setupMetaApplyNode(node) {
   const originalOnDragDrop = node.onDragDrop?.bind(node);
   node.onDragDrop = function (event) {
     const isImageDrop = hasSupportedImageTransfer(event?.dataTransfer);
-    if (isImageDrop) noteUserImageAction();
+    if (!isImageDrop) return originalOnDragDrop?.(event) ?? false;
+
+    noteUserImageAction();
+    // Resolve the dropped file BEFORE Comfy consumes the transfer. A microtask
+    // that re-reads the combo is racy: the widget often still holds the old path.
+    const pendingFile = imageFileFromTransfer(event.dataTransfer, { viewPath: viewPath() });
     const result = originalOnDragDrop?.(event);
-    if (isImageDrop) {
-      // Same-file drops often keep the combo value unchanged, so the widget
-      // callback may not run — re-apply explicitly after Comfy updates the path.
-      queueMicrotask(() => {
-        if (!allowSameImageApply) return;
-        maybeApplyFromWidget(imageWidget(node)?.value, { forceSame: true });
+    void pendingFile
+      .then(async (file) => {
+        if (file) {
+          allowSameImageApply = false;
+          await applyImage(file);
+          armImageValue(imageWidget(node)?.value);
+          return;
+        }
+        // No local/asset file handle — wait for the combo to settle, then apply.
+        setTimeout(() => {
+          maybeApplyFromWidget(imageWidget(node)?.value);
+        }, 50);
+      })
+      .catch((error) => {
+        setStatus(String(error.message || error));
       });
-    }
     return result ?? false;
   };
 

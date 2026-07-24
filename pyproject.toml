@@ -1,6 +1,6 @@
 [project]
 name = "4a-prompt-manager"
-version = "1.2.2"
+version = "1.2.3"
 description = "Folder-backed prompt library and multi-track scheduler for ComfyUI. Browse/edit wildcards and JSON cards with LoRAs and sparse generation settings; auto-apply models/params/double-sample and embed wildcard LoRAs per queue job; Bypass Switch for second pass; reuse image metadata; save with A1111-style parameters."
 readme = "README.md"
 license = { file = "LICENSE" }
