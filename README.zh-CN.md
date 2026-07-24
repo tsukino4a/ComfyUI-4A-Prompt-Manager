@@ -7,7 +7,7 @@
 
 面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard 与 JSON 卡片（LoRA + 稀疏生成设置）、多轨拼装提示词、Wildcard 批量时自动套用设置、从图片元数据回填，并保存带便携参数的生成结果。
 
-**当前版本：1.2.1** — 「统计数量」按嵌套 Wildcard 真实顺序周期计算；并包含 1.2.0 的卡片生成设置 / Bypass Switch / Wildcard 自动套用。
+**当前版本：1.2.2** — 读取图片元数据时忽略 Comfy 嵌入工作流的 `prompt`/`workflow`（避免草稿暴涨）；Meta Apply 切回工作流不再自动应用；调度器外部输入仅参与合成，连线栏目只读显示。
 
 ![总览](docs/images/hero.png)
 

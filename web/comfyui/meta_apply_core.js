@@ -1,6 +1,9 @@
 import { app } from "../../scripts/app.js";
 import { getPngMetadata, getWebpMetadata } from "../../scripts/pnginfo.js";
-import { readImagePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=14";
+import {
+  readImagePromptDocument,
+  sanitizeRawMetadata,
+} from "/pm4a/static/image_prompt_metadata.js?v=17";
 import { getLocale, pm4aFetch, t } from "./i18n.js?v=1";
 
 export const SCHEDULER_NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
@@ -73,16 +76,18 @@ export async function readImagePromptSnapshot(file) {
   } else if (file?.type === "image/webp" || lowerName.endsWith(".webp")) {
     metadata = { ...metadata, ...(await getWebpMetadata(file)) };
   }
+  // Parse against the full extract, then persist/show only non-graph fields.
   const document = await readImagePromptDocument(file, metadata);
   if (!document) throw new Error(t("图片中没有识别到正面或负面提示词"));
   const dimensions = await readImageDimensions(file);
+  const displayMetadata = sanitizeRawMetadata(metadata);
   const snapshotDocument = {
     ...document,
-    raw_metadata: metadata,
+    raw_metadata: displayMetadata,
     image_dimensions: dimensions || undefined,
   };
   return {
-    metadata,
+    metadata: displayMetadata,
     document: snapshotDocument,
     promptJson: JSON.stringify(snapshotDocument),
   };

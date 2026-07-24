@@ -4,7 +4,7 @@ import {
   formatRawMetadataJson,
   parsePromptDocument,
   registerKnownSchedulers,
-} from "/pm4a/static/image_prompt_metadata.js?v=14";
+} from "/pm4a/static/image_prompt_metadata.js?v=17";
 import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js?v=compact-labels-2";
 import {
   buildStoredImageUrl,

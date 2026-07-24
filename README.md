@@ -7,7 +7,7 @@ Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
-**Current release: 1.2.1** — nested Wildcard task counting (Count tasks uses the real nested sequential cycle), plus 1.2.0 card settings / Bypass Switch / Wildcard auto-apply.
+**Current release: 1.2.2** — ignore Comfy embed-workflow `prompt`/`workflow` blobs when reading image metadata (avoids draft bloat); Meta Apply no longer re-applies on workflow restore; external scheduler inputs are compose-only with linked read-only UI.
 
 ![Hero overview](docs/images/hero.png)
 

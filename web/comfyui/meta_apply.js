@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { parsePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=14";
+import { parsePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=17";
 import {
   fetchImageFile,
   hasSupportedImageTransfer,

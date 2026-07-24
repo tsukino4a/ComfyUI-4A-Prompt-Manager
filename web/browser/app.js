@@ -1,4 +1,4 @@
-import { readImagePromptDocument, stripLoraTags } from "./image_prompt_metadata.js?v=14";
+import { readImagePromptDocument, stripLoraTags } from "./image_prompt_metadata.js?v=17";
 import {
   hasSupportedImageTransfer,
   imageFileFromTransfer,

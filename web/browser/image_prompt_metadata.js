@@ -64,6 +64,60 @@ function parseJsonValue(value) {
   }
 }
 
+/** ComfyUI PNG "prompt" is the API graph ({ id: { class_type, inputs } }), not a caption. */
+function looksLikeComfyApiPrompt(value) {
+  const obj = typeof value === "string" ? parseJsonValue(value) : value;
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  let classTypeCount = 0;
+  for (const entry of Object.values(obj)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (typeof entry.class_type !== "string" || !entry.class_type.trim()) continue;
+    classTypeCount += 1;
+    if (entry.inputs && typeof entry.inputs === "object") return true;
+  }
+  return classTypeCount >= 2;
+}
+
+/** ComfyUI PNG "workflow" is the LiteGraph UI graph (nodes/links), not a caption. */
+function looksLikeComfyWorkflow(value) {
+  const obj = typeof value === "string" ? parseJsonValue(value) : value;
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  if (!Array.isArray(obj.nodes) || !obj.nodes.length) return false;
+  return obj.nodes.some((node) => (
+    node
+    && typeof node === "object"
+    && (typeof node.type === "string" || typeof node.class_type === "string")
+  ));
+}
+
+function looksLikeComfyEmbeddedGraph(value) {
+  if (value == null) return false;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) return false;
+    return looksLikeComfyApiPrompt(trimmed) || looksLikeComfyWorkflow(trimmed);
+  }
+  return looksLikeComfyApiPrompt(value) || looksLikeComfyWorkflow(value);
+}
+
+/**
+ * Drop Comfy embedded graph blobs from the "raw metadata" view/snapshot.
+ * Parsing still runs on the full extract; this is only what we persist/show.
+ */
+export function sanitizeRawMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return {};
+  const out = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    // Comfy embed-workflow fields: never show/persist. Real captions use
+    // parameters / pm4a_prompt_json / positive / description, etc.
+    const lower = key.toLowerCase();
+    if (lower === "workflow" || lower === "prompt") continue;
+    if (looksLikeComfyEmbeddedGraph(value)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 const JSON_NUMBER_SOURCE = "-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?";
 const JSON_NUMBER_AT_START = new RegExp(`^${JSON_NUMBER_SOURCE}`);
 const RAW_JSON_NUMBER_PREFIX = "\u0000pm4a_raw_number:";
@@ -143,10 +197,9 @@ function expandMetadataJson(value, rawNumberPrefix, depth = 0) {
 }
 
 export function formatRawMetadataJson(metadata) {
-  const rawNumberPrefix = rawJsonNumberPrefix(metadata);
-  const value = metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? expandMetadataJson(metadata, rawNumberPrefix)
-    : {};
+  const cleaned = sanitizeRawMetadata(metadata);
+  const rawNumberPrefix = rawJsonNumberPrefix(cleaned);
+  const value = expandMetadataJson(cleaned, rawNumberPrefix);
   const serializedPrefix = escapeRegExp(
     JSON.stringify(rawNumberPrefix).slice(1, -1),
   );
@@ -1047,11 +1100,18 @@ function findTextByKeys(value, wantedKeys, depth = 0, seen = new Set()) {
   for (const wanted of wantedKeys) {
     const actual = keys.find((key) => key.toLowerCase() === wanted);
     const candidate = actual === undefined ? undefined : value[actual];
-    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    if (typeof candidate === "string" && candidate.trim()) {
+      // Skip Comfy embedded API/workflow JSON that was saved under "prompt".
+      if (looksLikeComfyEmbeddedGraph(candidate)) continue;
+      return candidate.trim();
+    }
   }
   for (const key of keys) {
+    // Never mine captions out of Comfy embed-workflow blobs.
+    const lower = key.toLowerCase();
+    if (lower === "workflow" || lower === "prompt") continue;
     const child = nestedJson(value[key]);
-    if (!child) continue;
+    if (!child || looksLikeComfyEmbeddedGraph(child)) continue;
     const found = findTextByKeys(child, wantedKeys, depth + 1, seen);
     if (found) return found;
   }
@@ -1059,9 +1119,10 @@ function findTextByKeys(value, wantedKeys, depth = 0, seen = new Set()) {
 }
 
 function parseGeneric(metadata) {
+  // Do not read Comfy's "prompt" key (API graph). Use positive/caption/etc.
   let positive = findTextByKeys(
     metadata,
-    ["prompt", "positive", "description", "imagedescription", "caption", "base_caption", "text"],
+    ["positive", "description", "imagedescription", "caption", "base_caption", "text"],
   );
   let negative = findTextByKeys(
     metadata,
@@ -1075,7 +1136,7 @@ function parseGeneric(metadata) {
     if (nested) {
       positive ||= findTextByKeys(
         nested,
-        ["prompt", "positive", "description", "caption", "base_caption", "text"],
+        ["positive", "description", "caption", "base_caption", "text"],
       );
       negative ||= findTextByKeys(
         nested,
