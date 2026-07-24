@@ -102,15 +102,18 @@ class PromptScheduler4A:
         positive_parts: list[str] = []
         companion_negatives: list[str] = []
         resolved_tracks: list[dict[str, str]] = []
-        external_updates: dict[str, str] = {}
         try:
             for track in config["tracks"]:
                 input_name = _external_track_input_name(track["id"])
+                # External sockets override only this execution; never write back
+                # into the scheduler UI / config_json.
                 track_text = track["text"]
                 if input_name in external_inputs:
                     incoming = external_inputs[input_name]
-                    track_text = incoming if isinstance(incoming, str) else str(incoming)
-                    external_updates[track["id"]] = track_text
+                    if incoming is not None:
+                        track_text = (
+                            incoming if isinstance(incoming, str) else str(incoming)
+                        )
                 if not track["enabled"]:
                     continue
                 expanded = wc.expand_prompt(
@@ -148,8 +151,10 @@ class PromptScheduler4A:
             negative_text = config["negative"]
             if negative_input_name in external_inputs:
                 incoming = external_inputs[negative_input_name]
-                negative_text = incoming if isinstance(incoming, str) else str(incoming)
-                external_updates["negative"] = negative_text
+                if incoming is not None:
+                    negative_text = (
+                        incoming if isinstance(incoming, str) else str(incoming)
+                    )
             fixed_negative_result = wc.expand_prompt(
                 negative_text,
                 seed=selection_seed,
@@ -174,17 +179,7 @@ class PromptScheduler4A:
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
-            result = (positive, negative, prompt_json)
-            if external_updates:
-                return {
-                    "ui": {
-                        "pm4a_external_tracks": [
-                            json.dumps(external_updates, ensure_ascii=False)
-                        ]
-                    },
-                    "result": result,
-                }
-            return result
+            return (positive, negative, prompt_json)
         finally:
             if acquired:
                 scheduler.complete_run_task(run_id)

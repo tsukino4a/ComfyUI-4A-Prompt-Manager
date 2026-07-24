@@ -574,6 +574,7 @@ export const EN_MESSAGES = Object.freeze({
   "批量运行": "Run batch",
   "+ 新增栏目": "+ Add track",
   "固定负面提示词": "Fixed negative prompt",
+  "已由外部输入接管，运行时使用连线内容": "Driven by an external input; the linked value is used at run time",
   "展开负面栏目": "Expand negative track",
   "收起负面栏目": "Collapse negative track",
   "展开栏目": "Expand track",

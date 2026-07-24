@@ -3,6 +3,7 @@ import { api } from "../../scripts/api.js";
 import { parsePromptDocument } from "/pm4a/static/image_prompt_metadata.js?v=14";
 import {
   fetchImageFile,
+  hasSupportedImageTransfer,
   looksLikeImageFile,
 } from "/pm4a/static/image_drop.js?v=3";
 import {
@@ -170,11 +171,28 @@ function setupMetaApplyNode(node) {
 
   let busy = false;
   let acceptWidgetChanges = false;
+  /** Last image combo value restored/applied; blocks workflow-restore echoes. */
+  let armedImageValue = null;
+  /**
+   * Set by real user actions (drop / click image widget). Allows re-applying
+   * the same combo path — restore callbacks must NOT set this.
+   */
+  let allowSameImageApply = false;
 
   const setStatus = (message) => {
     const text = message || t("等待图片");
     status.textContent = text;
     status.title = text;
+  };
+
+  const normalizeImageValue = (value) => String(value || "").trim();
+
+  const armImageValue = (value = imageWidget(node)?.value) => {
+    armedImageValue = normalizeImageValue(value);
+  };
+
+  const noteUserImageAction = () => {
+    allowSameImageApply = true;
   };
 
   const applyImage = async (file) => {
@@ -201,12 +219,32 @@ function setupMetaApplyNode(node) {
   const applyFromWidgetValue = async (value) => {
     const reference = imageReferenceFromWidgetValue(value);
     if (!reference) {
+      armImageValue("");
       setStatus(t("等待图片"));
       return;
     }
     const url = buildStoredImageUrl(reference, viewPath());
     const file = await fetchImageFile(url, reference.filename);
     await applyImage(file);
+    armImageValue(value);
+  };
+
+  const maybeApplyFromWidget = (value, { forceSame = false } = {}) => {
+    if (!acceptWidgetChanges) return;
+    const next = normalizeImageValue(value);
+    const sameAsArmed = next === armedImageValue;
+    // Workflow restore replays the same combo → skip. User drop/re-pick sets
+    // allowSameImageApply (or forceSame after drop) so same path still applies.
+    if (sameAsArmed && !allowSameImageApply && !forceSame) return;
+    allowSameImageApply = false;
+    if (!next) {
+      armImageValue("");
+      setStatus(t("等待图片"));
+      return;
+    }
+    void applyFromWidgetValue(value).catch((error) => {
+      setStatus(String(error.message || error));
+    });
   };
 
   const widget = imageWidget(node);
@@ -214,14 +252,46 @@ function setupMetaApplyNode(node) {
     const previousCallback = widget.callback;
     widget.callback = function (value) {
       const result = previousCallback?.apply(this, arguments);
-      if (acceptWidgetChanges) {
-        void applyFromWidgetValue(value).catch((error) => {
-          setStatus(String(error.message || error));
-        });
-      }
+      maybeApplyFromWidget(value);
       return result;
     };
+    armImageValue(widget.value);
   }
+
+  const originalOnDragOver = node.onDragOver?.bind(node);
+  node.onDragOver = function (event) {
+    if (hasSupportedImageTransfer(event?.dataTransfer)) return true;
+    return originalOnDragOver?.(event) ?? false;
+  };
+
+  const originalOnDragDrop = node.onDragDrop?.bind(node);
+  node.onDragDrop = function (event) {
+    const isImageDrop = hasSupportedImageTransfer(event?.dataTransfer);
+    if (isImageDrop) noteUserImageAction();
+    const result = originalOnDragDrop?.(event);
+    if (isImageDrop) {
+      // Same-file drops often keep the combo value unchanged, so the widget
+      // callback may not run — re-apply explicitly after Comfy updates the path.
+      queueMicrotask(() => {
+        if (!allowSameImageApply) return;
+        maybeApplyFromWidget(imageWidget(node)?.value, { forceSame: true });
+      });
+    }
+    return result ?? false;
+  };
+
+  const originalOnMouseDown = node.onMouseDown?.bind(node);
+  node.onMouseDown = function (event, pos, canvas) {
+    const image = imageWidget(node);
+    const y = Array.isArray(pos) ? Number(pos[1]) : NaN;
+    const top = Number(image?.last_y);
+    // Official image+upload widget is tall (preview). Treat clicks in that band
+    // as user intent so re-picking the same file still applies.
+    if (image && Number.isFinite(y) && Number.isFinite(top) && y >= top - 4 && y <= top + 140) {
+      noteUserImageAction();
+    }
+    return originalOnMouseDown?.(event, pos, canvas);
+  };
 
   node.addDOMWidget("pm4a_meta_apply_ui", "pm4a_meta_apply", main, withSyncedDomWidth({
     serialize: false,
@@ -242,10 +312,23 @@ function setupMetaApplyNode(node) {
     enableWidgetChanges: () => {
       acceptWidgetChanges = true;
     },
+    disableWidgetChanges: () => {
+      acceptWidgetChanges = false;
+      allowSameImageApply = false;
+    },
+    /** Remember current combo without applying (workflow load / tab switch). */
+    armCurrentImage: () => {
+      allowSameImageApply = false;
+      armImageValue();
+    },
   };
   node.__pm4aMetaApplyApi = api;
 
+  // Freshly created nodes never hit onConfigure with a restored image; arm after
+  // the first paint so the initial combo sync does not look like a user change.
   queueMicrotask(() => {
+    armImageValue();
+    allowSameImageApply = false;
     acceptWidgetChanges = true;
   });
 
@@ -301,11 +384,15 @@ app.registerExtension({
     nodeType.prototype.onConfigure = function () {
       const result = originalConfigured?.apply(this, arguments);
       const api = setupMetaApplyNode(this);
-      const widget = imageWidget(this);
-      if (widget?.value && api) {
+      // Workflow load / tab switch restores the image combo. That must NOT
+      // re-apply metadata into the scheduler (it stomps live edits / wildcards).
+      // Apply only when the user actually changes the image selection.
+      if (api) {
+        api.disableWidgetChanges();
+        api.armCurrentImage();
         queueMicrotask(() => {
+          api.armCurrentImage();
           api.enableWidgetChanges();
-          void api.applyFromWidgetValue(widget.value);
         });
       }
       return result;

@@ -240,9 +240,12 @@ function pickTargetNodes(payload) {
 }
 
 function injectStyles() {
-  if (document.getElementById("pm4a-scheduler-styles")) return;
-  const style = document.createElement("style");
-  style.id = "pm4a-scheduler-styles";
+  let style = document.getElementById("pm4a-scheduler-styles");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "pm4a-scheduler-styles";
+    document.head.appendChild(style);
+  }
   style.textContent = `
     .pm4a-scheduler { position:relative; width:100%; height:100%; min-height:0; display:flex; flex-direction:column; gap:8px; padding:0 4px 2px; box-sizing:border-box; overflow:hidden; color:#e8e8e8; background:transparent; border:0; border-radius:0; font:12px/1.35 system-ui,sans-serif; }
     .pm4a-scheduler * { box-sizing:border-box; }
@@ -286,19 +289,34 @@ function injectStyles() {
     .pm4a-track-icon-button:hover { background:#3b4046 !important; }
     .pm4a-track-body { padding:7px; border-top:1px solid #496649; }
     .pm4a-track-prompt { position:relative; z-index:31; min-height:54px !important; resize:vertical; border-color:#4a684c !important; }
+    .pm4a-track-prompt.pm4a-input-linked {
+      background:#2a3b2a !important;
+      border-color:#2a3b2a !important;
+      color:#c5d2c5;
+      cursor:crosshair;
+    }
     .pm4a-track.bypassed { border-color:#656a72; background:#303237; }
     .pm4a-track.bypassed .pm4a-track-header { background:#24262a; }
     .pm4a-track.bypassed .pm4a-track-title-text { color:#a8adb5; text-decoration:line-through; }
     .pm4a-track.bypassed .pm4a-track-body { border-top-color:#464a51; }
     .pm4a-track.bypassed .pm4a-track-prompt { color:#92979f; border-color:#4b4f56 !important; }
+    .pm4a-track.bypassed .pm4a-track-prompt.pm4a-input-linked {
+      background:#2f3236 !important;
+      border-color:#2f3236 !important;
+    }
     .pm4a-negative { flex:0 0 auto; border:1px solid #704848; border-radius:6px; overflow:hidden; background:#533; }
     .pm4a-negative-title { min-height:28px; padding:2px 4px; display:flex; align-items:center; gap:2px; color:#dbc3c3; font-weight:700; background:#322; }
     .pm4a-negative textarea { position:relative; z-index:31; margin:8px; width:calc(100% - 16px); min-height:52px; border-color:#704949 !important; }
+    .pm4a-negative textarea.pm4a-input-linked {
+      background:#3b2a2a !important;
+      border-color:#3b2a2a !important;
+      color:#dbc3c3;
+      cursor:crosshair;
+    }
     .pm4a-add-track { flex:0 0 auto; border-style:dashed !important; }
     .pm4a-track-input-socket { position:absolute; z-index:30; width:8px; height:8px; padding:0; box-sizing:border-box; border:1.25px solid #020402; border-radius:50%; background:transparent; box-shadow:inset 0 0 1px .5px rgba(75,255,103,.72), 0 0 1px .5px rgba(70,245,96,.58); transform:translate(-50%,-50%); cursor:crosshair; touch-action:none; }
     .pm4a-track-input-socket.connected { border-color:#78f28a; background:#78f28a; box-shadow:0 0 1px rgba(70,245,96,.45); }
   `;
-  document.head.appendChild(style);
 }
 
 async function requestJson(path, { method = "GET", body } = {}) {
@@ -692,6 +710,38 @@ app.registerExtension({
         }
       };
 
+      const isTrackInputLinked = (trackId) => {
+        const input = node.inputs?.find(
+          (candidate) => candidate?.name === trackInputName(trackId),
+        );
+        return input?.link !== null && input?.link !== undefined;
+      };
+
+      const applyExternalLinkedFields = () => {
+        const negativeLinked = isTrackInputLinked("negative");
+        negativeInput.readOnly = negativeLinked;
+        negativeInput.classList.toggle("pm4a-input-linked", negativeLinked);
+        negativeInput.title = negativeLinked ? t("已由外部输入接管，运行时使用连线内容") : "";
+
+        for (const track of config.tracks) {
+          const card = trackList.querySelector(
+            `[data-track-id="${CSS.escape(String(track.id))}"]`,
+          );
+          if (!card) continue;
+          const linked = isTrackInputLinked(track.id);
+          const prompt = card.querySelector(".pm4a-track-prompt");
+          if (prompt) {
+            prompt.readOnly = linked;
+            prompt.classList.toggle("pm4a-input-linked", linked);
+            prompt.title = linked ? t("已由外部输入接管，运行时使用连线内容") : "";
+          }
+          const libraryButton = card.querySelector(".pm4a-track-library-button");
+          if (libraryButton) {
+            libraryButton.disabled = linked || !String(track.text || "").trim();
+          }
+        }
+      };
+
       const scheduleTrackInputLayout = () => {
         if (inputLayoutFrame) cancelAnimationFrame(inputLayoutFrame);
         inputLayoutFrame = requestAnimationFrame(() => {
@@ -734,6 +784,7 @@ app.registerExtension({
               );
             }
           }
+          applyExternalLinkedFields();
           if (socketMoved) node.setDirtyCanvas?.(true, true);
         });
       };
@@ -1556,35 +1607,8 @@ app.registerExtension({
         return result;
       };
 
-      const originalOnExecuted = node.onExecuted?.bind(node);
-      node.onExecuted = function (message) {
-        const result = originalOnExecuted?.(message);
-        const raw = Array.isArray(message?.pm4a_external_tracks)
-          ? message.pm4a_external_tracks[0]
-          : message?.pm4a_external_tracks;
-        if (raw !== undefined && raw !== null) {
-          try {
-            const updates = typeof raw === "string" ? JSON.parse(raw) : raw;
-            if (updates && typeof updates === "object") {
-              for (const [trackId, value] of Object.entries(updates)) {
-                if (typeof value !== "string") continue;
-                if (trackId === "negative") {
-                  config.negative = value;
-                  negativeInput.value = value;
-                  continue;
-                }
-                const track = config.tracks.find((candidate) => candidate.id === trackId);
-                if (track) track.text = value;
-              }
-              persist();
-              renderTracks();
-            }
-          } catch (error) {
-            console.error("[4A Scheduler] Failed to save external prompt text", error);
-          }
-        }
-        return result;
-      };
+      // External track sockets affect compose() only; never write execution
+      // results back into the scheduler columns / config_json.
 
       const originalOnConnectionsChange = node.onConnectionsChange?.bind(node);
       node.onConnectionsChange = function () {
