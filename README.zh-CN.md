@@ -2,7 +2,8 @@
 
 [English](README.md)
 
-中文视频介绍（Bilibili）：https://www.bilibili.com/video/BV1DWKv6NE6t
+中文视频介绍（Bilibili）：https://www.bilibili.com/video/BV1DWKv6NE6t  
+更新 #1（Bilibili）：https://www.bilibili.com/video/BV1Ccg86nErh
 
 面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard 与 JSON 卡片（LoRA + 稀疏生成设置）、多轨拼装提示词、Wildcard 批量时自动套用设置、从图片元数据回填，并保存带便携参数的生成结果。
 

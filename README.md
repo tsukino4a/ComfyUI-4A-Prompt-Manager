@@ -2,7 +2,8 @@
 
 [中文说明](README.zh-CN.md)
 
-Chinese video guide (Bilibili): https://www.bilibili.com/video/BV1DWKv6NE6t
+Chinese video guide (Bilibili): https://www.bilibili.com/video/BV1DWKv6NE6t  
+Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
