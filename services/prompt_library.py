@@ -570,10 +570,19 @@ def rename_folder(folder: str, name: str) -> dict:
         try:
             _rename_case_safe(source, target)
             renamed = True
-            updated_folder_dict, updated_folder_display_paths = _build_folder_indexes(
-                updated_file_dict,
-                updated_display_paths,
-                root,
+            known_folders = _remap_folder_displays_for_rename(
+                _folder_display_paths,
+                source_key=folder_key,
+                source_display=source_display,
+                target_path=target,
+                root=root,
+            )
+            updated_folder_dict, updated_folder_display_paths = (
+                _rebuild_folder_indexes_from_known(
+                    updated_file_dict,
+                    updated_display_paths,
+                    known_folders,
+                )
             )
         except Exception:
             if renamed and target.exists():
@@ -1423,6 +1432,42 @@ def _rebuild_folder_indexes_from_known(
     return folder_dict, folder_display_paths
 
 
+def _known_folder_displays(folder_display_paths: dict[str, str]) -> dict[str, str]:
+    """Empty-folder display map without the root alias (no disk scan)."""
+    return {
+        key: display
+        for key, display in folder_display_paths.items()
+        if key and key != ROOT_WILDCARD_KEY
+    }
+
+
+def _remap_folder_displays_for_rename(
+    folder_display_paths: dict[str, str],
+    *,
+    source_key: str,
+    source_display: str,
+    target_path: Path,
+    root: Path,
+) -> dict[str, str]:
+    """Rewrite folder keys/displays after one directory rename (preserve empties)."""
+    source_prefix = source_key + "/"
+    source_depth = len(source_display.split("/"))
+    remapped: dict[str, str] = {}
+    for folder_key, folder_display in folder_display_paths.items():
+        if not folder_key or folder_key == ROOT_WILDCARD_KEY:
+            continue
+        if folder_key != source_key and not folder_key.startswith(source_prefix):
+            remapped[folder_key] = folder_display
+            continue
+        relative_parts = folder_display.split("/")[source_depth:]
+        next_path = target_path.joinpath(*relative_parts)
+        next_display = str(next_path.relative_to(root)).replace("\\", "/")
+        next_key = normalize_key(next_display)
+        if next_key:
+            remapped[next_key] = next_display
+    return remapped
+
+
 def operate_items(
     action: str,
     items: Iterable[dict],
@@ -2022,34 +2067,6 @@ def _update_json_entry_locked(
         if target.exists() and not _paths_refer_to_same_file(source, target):
             raise FileExistsError(tr("已存在同名文件：{filename}", filename=target.name))
 
-    updated_file_dict = dict(_file_dict)
-    updated_file_paths = dict(_file_paths)
-    updated_display_paths = dict(_display_paths)
-    updated_negative_dict = dict(_negative_dict)
-    updated_note_dict = dict(_note_dict)
-    updated_lora_dict = {key: dict(value) for key, value in _lora_dict.items()}
-    updated_settings_dict = {
-        key: _copy_settings(value) for key, value in _settings_dict.items()
-    }
-    if target_key != normalized_key:
-        updated_file_dict.pop(normalized_key, None)
-        updated_file_paths.pop(normalized_key, None)
-        updated_display_paths.pop(normalized_key, None)
-        updated_negative_dict.pop(normalized_key, None)
-        updated_note_dict.pop(normalized_key, None)
-        updated_lora_dict.pop(normalized_key, None)
-        updated_settings_dict.pop(normalized_key, None)
-    updated_file_dict[target_key] = [next_content]
-    updated_file_paths[target_key] = target_path
-    updated_display_paths[target_key] = display_path
-    updated_negative_dict[target_key] = next_negative
-    updated_note_dict[target_key] = next_note
-    updated_lora_dict[target_key] = next_lora
-    updated_settings_dict[target_key] = next_settings
-    updated_folder_dict, updated_folder_display_paths = _build_folder_indexes(
-        updated_file_dict, updated_display_paths, root
-    )
-
     fields_changed = (
         next_content != current_content
         or next_negative != current_negative
@@ -2057,6 +2074,8 @@ def _update_json_entry_locked(
         or next_lora != current_lora
         or next_settings != current_settings
     )
+    key_changed = target_key != normalized_key
+    content_changed = next_content != current_content
     if fields_changed:
         metadata.archive_files(
             root,
@@ -2088,15 +2107,29 @@ def _update_json_entry_locked(
                 _rename_case_safe(current, original)
         raise
 
-    _file_dict = updated_file_dict
-    _file_paths = updated_file_paths
-    _display_paths = updated_display_paths
-    _negative_dict = updated_negative_dict
-    _note_dict = updated_note_dict
-    _lora_dict = updated_lora_dict
-    _settings_dict = updated_settings_dict
-    _folder_dict = updated_folder_dict
-    _folder_display_paths = updated_folder_display_paths
+    # Disk succeeded: mutate indexes in place. Skip folder rebuild when only
+    # note/negative/lora/settings changed (no key/content change, no rglob).
+    if key_changed:
+        _file_dict.pop(normalized_key, None)
+        _file_paths.pop(normalized_key, None)
+        _display_paths.pop(normalized_key, None)
+        _negative_dict.pop(normalized_key, None)
+        _note_dict.pop(normalized_key, None)
+        _lora_dict.pop(normalized_key, None)
+        _settings_dict.pop(normalized_key, None)
+    _file_dict[target_key] = [next_content]
+    _file_paths[target_key] = target_path
+    _display_paths[target_key] = display_path
+    _negative_dict[target_key] = next_negative
+    _note_dict[target_key] = next_note
+    _lora_dict[target_key] = next_lora
+    _settings_dict[target_key] = next_settings
+    if key_changed or content_changed:
+        known_folders = _known_folder_displays(_folder_display_paths)
+        _folder_dict, _folder_display_paths = _rebuild_folder_indexes_from_known(
+            _file_dict, _display_paths, known_folders
+        )
+
     try:
         metadata.migrate_entry(
             root,
@@ -2202,7 +2235,8 @@ def update_entry(
 ) -> dict:
     """Update a prompt file and optionally rename its sidecar previews."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _folder_display_paths
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
+    global _folder_display_paths
 
     ensure_loaded()
     normalized_key = normalize_key(key)
@@ -2269,21 +2303,8 @@ def update_entry(
                 )
 
         display_path = str(relative_target).replace("\\", "/")
-        updated_file_dict: dict[str, list[str]] = {}
-        updated_file_paths: dict[str, Path] = {}
-        updated_display_paths: dict[str, str] = {}
-        for current_key, options in _file_dict.items():
-            if current_key == normalized_key:
-                updated_file_dict[target_key] = list(options)
-                updated_file_paths[target_key] = target_path
-                updated_display_paths[target_key] = display_path
-            else:
-                updated_file_dict[current_key] = options
-                updated_file_paths[current_key] = _file_paths[current_key]
-                updated_display_paths[current_key] = _display_paths[current_key]
-        updated_folder_dict, updated_folder_display_paths = _build_folder_indexes(
-            updated_file_dict, updated_display_paths, root
-        )
+        options = list(_file_dict[normalized_key])
+        key_changed = target_key != normalized_key
 
         renamed: list[tuple[Path, Path]] = []
         try:
@@ -2297,18 +2318,33 @@ def update_entry(
                     _rename_case_safe(current, original)
             raise
 
-        _file_dict = updated_file_dict
-        _file_paths = updated_file_paths
-        _display_paths = updated_display_paths
-        _folder_dict = updated_folder_dict
-        _folder_display_paths = updated_folder_display_paths
+        if key_changed:
+            _file_dict.pop(normalized_key, None)
+            _file_paths.pop(normalized_key, None)
+            _display_paths.pop(normalized_key, None)
+            if normalized_key in _negative_dict:
+                _negative_dict[target_key] = _negative_dict.pop(normalized_key)
+            if normalized_key in _note_dict:
+                _note_dict[target_key] = _note_dict.pop(normalized_key)
+            if normalized_key in _lora_dict:
+                _lora_dict[target_key] = _lora_dict.pop(normalized_key)
+            if normalized_key in _settings_dict:
+                _settings_dict[target_key] = _settings_dict.pop(normalized_key)
+        _file_dict[target_key] = options
+        _file_paths[target_key] = target_path
+        _display_paths[target_key] = display_path
+        if key_changed:
+            known_folders = _known_folder_displays(_folder_display_paths)
+            _folder_dict, _folder_display_paths = _rebuild_folder_indexes_from_known(
+                _file_dict, _display_paths, known_folders
+            )
         try:
             metadata.migrate_entry(
                 root,
                 normalized_key,
                 target_key,
                 display_path=display_path,
-                content="\n".join(updated_file_dict[target_key]),
+                content="\n".join(options),
             )
         except (metadata.MetadataError, OSError) as exc:
             logger.warning("Prompt saved but metadata could not be updated: %s", exc)

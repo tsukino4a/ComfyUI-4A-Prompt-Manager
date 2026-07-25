@@ -14,6 +14,9 @@ build/
 .superpowers/
 docs/superpowers/
 
+# Local-only performance / library API harness (do not ship or sync to ComfyUI)
+.perf_lab/
+
 # Local environments and editor files
 .venv/
 venv/

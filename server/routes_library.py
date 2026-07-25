@@ -212,7 +212,8 @@ async def handle_update_entry(request: web.Request) -> web.Response:
         return _json_error("double_sample_parameters must be object")
 
     try:
-        entry = wc.update_entry(
+        entry = await asyncio.to_thread(
+            wc.update_entry,
             key,
             name=name,
             content=content,
@@ -267,7 +268,8 @@ async def handle_create_entry(request: web.Request) -> web.Response:
         return _json_error("double_sample_parameters must be object")
 
     try:
-        entry = wc.create_entry(
+        entry = await asyncio.to_thread(
+            wc.create_entry,
             folder,
             name,
             content,
@@ -301,7 +303,7 @@ async def handle_create_folder(request: web.Request) -> web.Response:
     if not isinstance(parent, str) or not isinstance(name, str):
         return _json_error("parent and name must be strings")
     try:
-        folder = wc.create_folder(parent, name)
+        folder = await asyncio.to_thread(wc.create_folder, parent, name)
     except FileNotFoundError as exc:
         return _json_error(str(exc), 404)
     except FileExistsError as exc:
@@ -704,7 +706,7 @@ async def handle_update_image(request: web.Request) -> web.Response:
         return _json_error(tr("请选择图片"))
 
     try:
-        entry = wc.update_entry_image(key, image_data)
+        entry = await asyncio.to_thread(wc.update_entry_image, key, image_data)
     except FileNotFoundError as exc:
         return _json_error(str(exc), 404)
     except ValueError as exc:
