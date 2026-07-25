@@ -12,7 +12,8 @@ import {
   imageReferenceLabel,
   normalizeStoredImageReference,
   resolvePromptDisplayRestoreState,
-} from "./prompt_display_state.js?v=2";
+  shouldKeepImportedPromptDisplay,
+} from "./prompt_display_state.js?v=3";
 import {
   fetchImageFile,
   hasSupportedImageTransfer,
@@ -1701,6 +1702,16 @@ app.registerExtension({
       if (live !== null) {
         this.properties = this.properties || {};
         this.properties[LAST_LIVE_JSON_PROPERTY] = live;
+      }
+      // Dropping an image mid-batch updates the live widget, but already-queued
+      // jobs still execute with a stale empty imported_json and would push the
+      // next item's scheduler prompt into the UI. Keep the image snapshot.
+      const importedWidget = this.widgets?.find((widget) => widget.name === "imported_json");
+      if (shouldKeepImportedPromptDisplay({
+        importedJson: typeof importedWidget?.value === "string" ? importedWidget.value : "",
+        importedImage: this.properties?.[IMPORTED_IMAGE_PROPERTY],
+      })) {
+        return;
       }
       const raw = extractJson(message);
       const source = extractSource(message) === "image" ? "image" : "scheduler";

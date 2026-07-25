@@ -61,3 +61,16 @@ export function resolvePromptDisplayRestoreState({
     imageReference: source === "image" ? imageReference : null,
   };
 }
+
+/**
+ * True when the node currently holds a user-loaded image snapshot.
+ * Queued batch jobs may still execute with a stale empty imported_json and
+ * push live scheduler text into onExecuted — the UI must keep the snapshot.
+ */
+export function shouldKeepImportedPromptDisplay({
+  importedJson = "",
+  importedImage = null,
+} = {}) {
+  if (typeof importedJson === "string" && importedJson.trim()) return true;
+  return Boolean(normalizeStoredImageReference(importedImage));
+}
