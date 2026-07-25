@@ -431,6 +431,8 @@ async function copyPromptWildcards(items) {
         : t("已复制 {count} 项为 Wildcard：{wildcard}", { count: refs.length, wildcard }),
       "success",
     );
+    // Same as copy/move/delete: leave multi-select after a successful batch action.
+    setBatchMode(false);
   } catch (error) {
     toast(t("复制失败：{error}", { error: error.message || error }), "error");
   }
@@ -1650,7 +1652,8 @@ async function runItemOperation(action, items, destination = "") {
       && Array.isArray(data.deleted_keys)
       && data.deleted_keys.includes(selectedKeyBeforeOperation);
     const movedSelectedKey = action === "move" ? remapSelectedPrompt(data.key_moves) : "";
-    state.batchSelection.clear();
+    // File managers exit multi-select after a successful bulk action.
+    setBatchMode(false);
     if (Array.isArray(data.favorites)) state.favorites = new Set(data.favorites);
     if (action !== "copy" && items.some(
       (item) => item.type === "folder" && (state.prefix === item.key || state.prefix.startsWith(`${item.key}/`)),
