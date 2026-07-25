@@ -7,7 +7,7 @@
 
 面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard 与 JSON 卡片（LoRA + 稀疏生成设置）、多轨拼装提示词、Wildcard 批量时自动套用设置、从图片元数据回填，并保存带便携参数的生成结果。
 
-**当前版本：1.2.3** — 修复 Meta Apply 拖入新图仍应用工作流打开时旧图的问题；优先用拖入文件而非过期 combo 路径。
+**当前版本：1.3.0** — 顺序 Wildcard 批量按嵌套叶子空间计数/展开（分支求和、同栏求积）；`{a|b}` / `N#` 始终随机；说明见 `docs/wildcard-nesting.zh-CN.md`。
 
 ![总览](docs/images/hero.png)
 

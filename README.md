@@ -7,7 +7,7 @@ Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
-**Current release: 1.2.3** — fix Meta Apply applying the workflow-loaded image after dropping a different image; prefer the dropped file over a stale combo path.
+**Current release: 1.3.0** — sequential Wildcard batching uses nested leaf space (branch sum, same-track product); `{a|b}` / `N#` stay random; docs under `docs/wildcard-nesting.md`.
 
 ![Hero overview](docs/images/hero.png)
 
