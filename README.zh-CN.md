@@ -29,7 +29,9 @@ JSON 卡片可稀疏绑定 LoRA、模型、推理参数（含 seed/宽高）、�
 
 多轨正面拼装，支持随机 / 顺序 / 洗牌；兼容 Impact 风格 Wildcard 解析（`__key__`、`{a|b}`、权重、多选、文件夹与全局文件名引用）；每个栏位还可从外部连入 STRING。
 
-**嵌套 Wildcard（自动化利器）：** 卡片 `content` / `negative` 里可以再写 `__文件夹__` / `__路径/文件__`。展开顶层卡片时会递归解析内层引用，并一并带上内层的 LoRA、负面与稀疏生成设置。典型用法是「顶层只放要对比的 LoRA/预设，内容里嵌套 `__场景__`」——Scheduler 顺序跑一轮，就能自动扫完组合；点「统计数量」会按**嵌套后的真实周期**填任务数（例如外层 3 × 内层 10 → 30），而不是只数顶层文件个数。
+**嵌套 Wildcard（自动化利器）：** 卡片 `content` / `negative` 与 TXT 正文里都可以再写 `__文件夹__` / `__路径/文件__`。展开时递归解析，并带上内层的 LoRA、负面与稀疏生成设置。顺序批量按**叶子空间**计数/展开：嵌套分支求和、同栏并排 `__a__, __b__` 求积、多栏目取最长；`{a|b}` 等始终随机、不占周期。典型用法是「顶层对比 LoRA/预设，内容里嵌套 `__场景__` / 套件」——点「统计数量」按真实叶子数填任务，而不是只数顶层文件个数。
+
+完整规则与示例见 [`docs/wildcard-nesting.zh-CN.md`](docs/wildcard-nesting.zh-CN.md)。
 
 ![Scheduler](docs/images/scheduler.png)
 
@@ -92,6 +94,7 @@ python install.py
 | [`wildcards/examples/`](wildcards/examples/) | 随包装的提示词样例（会被库加载） |
 | [`examples/pm4a_examples_bundle.json`](examples/pm4a_examples_bundle.json) | 导出/导入格式演示 |
 | [`workflows/default_api.json`](workflows/default_api.json) | 浏览器预览生图用的内置 UNet API 图（可替换） |
+| [`docs/wildcard-nesting.zh-CN.md`](docs/wildcard-nesting.zh-CN.md) | 嵌套 Wildcard / 顺序叶子空间说明与示例（[English](docs/wildcard-nesting.md)） |
 
 若模板里加载器为空或模型名在你本机不存在，运行前请先选好模型。
 

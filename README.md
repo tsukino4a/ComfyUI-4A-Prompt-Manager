@@ -29,7 +29,9 @@ JSON cards can sparsely store LoRAs, models, sampler settings (including seed/si
 
 Stack positives across tracks with random / sequence / shuffle, Impact-compatible wildcard parsing (`__key__`, `{a|b}`, weights, multi-select, folder and global name lookup), and optional STRING inputs wired into each track from the graph.
 
-**Nested wildcards (great for automation):** a card’s `content` / `negative` may itself contain `__folder__` / `__path/file__`. Expanding the outer card recursively resolves inner refs and carries along nested LoRAs, negatives, and sparse generation settings. A common pattern is “outer cards = LoRAs/presets to compare; inner `__scenes__` = shared prompts”—one sequential Scheduler pass sweeps the matrix. **Count tasks** fills the job count from the **real nested cycle** (e.g. 3 outer × 10 inner → 30), not just the top-level folder size.
+**Nested wildcards (great for automation):** JSON `content` / `negative` and TXT bodies may contain further `__folder__` / `__path/file__`. Expansion resolves recursively and carries nested LoRAs, negatives, and sparse generation settings. Sequential batching uses a **leaf space**: nested branches **sum**, side-by-side `__a__, __b__` in one track **multiply**, multiple tracks take the **longest**; `{a|b}` and friends stay random and do not lengthen the cycle. A common pattern is “outer cards = LoRAs/presets to compare; inner `__scenes__` / suites = shared prompts”—**Count tasks** fills the job count from that leaf space, not just the top-level folder size.
+
+Full rules and examples: [`docs/wildcard-nesting.md`](docs/wildcard-nesting.md) ([中文](docs/wildcard-nesting.zh-CN.md)).
 
 ![Scheduler](docs/images/scheduler.png)
 
@@ -92,6 +94,7 @@ Restart ComfyUI after install.
 | [`wildcards/examples/`](wildcards/examples/) | Shipped prompt samples (loaded by the library) |
 | [`examples/pm4a_examples_bundle.json`](examples/pm4a_examples_bundle.json) | Export/import demo bundle |
 | [`workflows/default_api.json`](workflows/default_api.json) | Built-in UNet API graph for in-browser preview generation (replaceable) |
+| [`docs/wildcard-nesting.md`](docs/wildcard-nesting.md) | Nested wildcards / sequential leaf-space guide ([中文](docs/wildcard-nesting.zh-CN.md)) |
 
 Select models in template workflows before running if loaders are empty or point to names you do not have locally.
 
