@@ -64,8 +64,8 @@ export function resolvePromptDisplayRestoreState({
 
 /**
  * True when the node currently holds a user-loaded image snapshot.
- * Queued batch jobs may still execute with a stale empty imported_json and
- * push live scheduler text into onExecuted — the UI must keep the snapshot.
+ * Keep showing that snapshot until the user clears it — do not replace it
+ * with a later execution's connected prompt_json (e.g. mid-batch queue).
  */
 export function shouldKeepImportedPromptDisplay({
   importedJson = "",

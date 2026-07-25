@@ -16,10 +16,10 @@
   },
   "Prompt Display (4A Prompt Manager)": {
     "display_name": "Meta Loader (4A Prompt Manager)",
-    "description": "Loads prompt, inference, and LoRA metadata from images, then displays resolved columns as selectable read-only text.",
+    "description": "Show prompt/parameter/LoRA metadata from a dropped image, or from a connected prompt_json for the current execution only (not a live stream).",
     "inputs": {
       "imported_json": {"name": "Imported JSON", "tooltip": "Prompt metadata JSON imported from an image or external source."},
-      "prompt_json": {"name": "Prompt JSON", "tooltip": "Live prompt JSON connected from Prompt Scheduler."}
+      "prompt_json": {"name": "Prompt JSON", "tooltip": "Optional. When connected, each run shows that execution's prompt JSON (not continuous live refresh)."}
     }
   },
   "Meta Apply (4A Prompt Manager)": {

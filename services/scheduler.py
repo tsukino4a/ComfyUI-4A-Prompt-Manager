@@ -53,8 +53,6 @@ except ImportError:  # standalone preview
 TRACK_MODES = {"sequence", "random", "shuffle"}
 RUN_TTL_SECONDS = 24 * 60 * 60
 MAX_CACHED_RUNS = 128
-# Cap dry-run probes when measuring nested sequential cycles.
-MAX_SEQUENCE_CYCLE_PROBE = 5000
 
 _run_lock = threading.RLock()
 _runs: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
@@ -245,64 +243,6 @@ def folder_counts(
         return {}
     active = resolver or prompt_library.snapshot_resolver()
     return {key: int(active.option_count(key)) for key in folders}
-
-
-def _selection_fingerprint(result: Any) -> tuple[Any, ...]:
-    """Fingerprint one expansion for sequential cycle detection.
-
-    selected_keys alone is not enough: multi-line TXT options share one file
-    key, so include resolved text / negatives / LoRA texts as well.
-    """
-    return (
-        tuple(result.selected_keys),
-        result.text,
-        tuple(result.negatives),
-        tuple(result.lora_texts),
-    )
-
-
-def sequence_cycle_length(
-    text: str,
-    *,
-    resolver: LibraryWildcardResolver,
-    seed: int = 0,
-    track_id: str = "",
-    max_probe: int = MAX_SEQUENCE_CYCLE_PROBE,
-) -> int:
-    """Return the shared-index sequential period for one track text.
-
-    Dry-runs expansion with increasing execution_index until the index-0
-    selection fingerprint repeats. Kept for diagnostics; task counting uses
-    :func:`hierarchical_cycle_length` instead.
-    """
-    if not isinstance(text, str) or not text.strip():
-        return 0
-    if not wildcard_keys(text):
-        return 0
-
-    limit = max(1, int(max_probe))
-    fingerprint0: tuple[Any, ...] | None = None
-    for index in range(0, limit + 1):
-        try:
-            result = expand_prompt(
-                text,
-                resolver=resolver,
-                seed=int(seed),
-                mode="sequence",
-                execution_index=index,
-                track_id=track_id,
-            )
-        except Exception:
-            return 0
-        fingerprint = _selection_fingerprint(result)
-        if index == 0:
-            if not result.selected_keys:
-                return 0
-            fingerprint0 = fingerprint
-            continue
-        if fingerprint == fingerprint0:
-            return index
-    return limit
 
 
 def hierarchical_cycle_length(

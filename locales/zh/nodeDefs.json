@@ -16,10 +16,10 @@
   },
   "Prompt Display (4A Prompt Manager)": {
     "display_name": "元数据加载器（4A 提示词管理器）",
-    "description": "从图像加载提示词、推理和 LoRA 元数据，并以可选择的只读文本显示已解析列。",
+    "description": "从图片读取提示词/参数/LoRA 元数据；若连接了提示词 JSON，则显示该次执行送来的内容（非实时流）。",
     "inputs": {
       "imported_json": {"name": "导入的 JSON", "tooltip": "从图像或外部来源导入的提示词元数据 JSON。"},
-      "prompt_json": {"name": "提示词 JSON", "tooltip": "连接提示词调度器输出的实时提示词 JSON。"}
+      "prompt_json": {"name": "提示词 JSON", "tooltip": "可选。连接后每次执行显示该次送来的提示词 JSON（不是持续实时刷新）。"}
     }
   },
   "Meta Apply (4A Prompt Manager)": {

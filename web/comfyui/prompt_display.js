@@ -13,7 +13,7 @@ import {
   normalizeStoredImageReference,
   resolvePromptDisplayRestoreState,
   shouldKeepImportedPromptDisplay,
-} from "./prompt_display_state.js?v=3";
+} from "./prompt_display_state.js?v=4";
 import {
   fetchImageFile,
   hasSupportedImageTransfer,
@@ -57,6 +57,9 @@ import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const DISPLAY_NODE_CLASS = "Prompt Display (4A Prompt Manager)";
 const LAST_JSON_PROPERTY = "pm4a_last_prompt_json";
+/** Last prompt_json value from an execution where that input was connected. */
+const LAST_CONNECTED_JSON_PROPERTY = "pm4a_last_connected_prompt_json";
+/** @deprecated read fallback only — same role as LAST_CONNECTED_JSON_PROPERTY */
 const LAST_LIVE_JSON_PROPERTY = "pm4a_last_live_prompt_json";
 const IMPORTED_FILE_PROPERTY = "pm4a_imported_file_name";
 const IMPORTED_IMAGE_PROPERTY = "pm4a_imported_image_ref";
@@ -216,17 +219,36 @@ function extractJson(message) {
     ?? firstString(message?.ui?.pm4a_prompt_json);
 }
 
-function extractLiveJson(message) {
-  return firstString(message?.pm4a_live_prompt_json)
+function extractConnectedJson(message) {
+  return firstString(message?.pm4a_connected_prompt_json)
+    ?? firstString(message?.output?.pm4a_connected_prompt_json)
+    ?? firstString(message?.ui?.pm4a_connected_prompt_json)
+    // Older builds only exposed the wire copy as pm4a_live_prompt_json.
+    ?? firstString(message?.pm4a_live_prompt_json)
     ?? firstString(message?.output?.pm4a_live_prompt_json)
     ?? firstString(message?.ui?.pm4a_live_prompt_json);
 }
 
-function extractSource(message) {
-  return firstString(message?.pm4a_prompt_source)
-    ?? firstString(message?.output?.pm4a_prompt_source)
-    ?? firstString(message?.ui?.pm4a_prompt_source)
-    ?? "scheduler";
+function extractPromptConnected(message) {
+  const value = message?.pm4a_prompt_connected
+    ?? message?.output?.pm4a_prompt_connected
+    ?? message?.ui?.pm4a_prompt_connected;
+  const flag = Array.isArray(value) ? value[0] : value;
+  return flag === true || flag === 1 || flag === "true";
+}
+
+function readLastConnectedJson(node) {
+  const current = node?.properties?.[LAST_CONNECTED_JSON_PROPERTY];
+  if (typeof current === "string") return current;
+  const legacy = node?.properties?.[LAST_LIVE_JSON_PROPERTY];
+  return typeof legacy === "string" ? legacy : "";
+}
+
+function writeLastConnectedJson(node, value) {
+  node.properties = node.properties || {};
+  const text = typeof value === "string" ? value : "";
+  node.properties[LAST_CONNECTED_JSON_PROPERTY] = text;
+  node.properties[LAST_LIVE_JSON_PROPERTY] = text;
 }
 
 function viewPath() {
@@ -372,8 +394,8 @@ function setupDisplayNode(node) {
   const liveButton = document.createElement("button");
   liveButton.type = "button";
   liveButton.className = "pm4a-display-live-button";
-  liveButton.textContent = t("恢复实时");
-  liveButton.title = t("清除图片快照，重新跟随 Scheduler");
+  liveButton.textContent = t("清除快照");
+  liveButton.title = t("清除图片快照，改回显示已连接的提示词 JSON（上次执行结果）");
   liveButton.hidden = true;
   summary.append(summaryTitle, status, targetSelect, rawMetaButton, liveButton);
 
@@ -1406,7 +1428,7 @@ function setupDisplayNode(node) {
       empty.className = "pm4a-display-empty";
       empty.textContent = raw
         ? t("输入不是可识别的提示词数据")
-        : t("运行工作流，或将含提示词元数据的图片拖到此节点");
+        : t("连接提示词 JSON 后运行，或将含元数据的图片拖到此节点");
       list.appendChild(empty);
       scheduleTextResize();
       return;
@@ -1527,8 +1549,8 @@ function setupDisplayNode(node) {
       : "";
     node.properties = node.properties || {};
     node.properties[LAST_JSON_PROPERTY] = value;
-    if (source === "scheduler" && options.storeLive !== false) {
-      node.properties[LAST_LIVE_JSON_PROPERTY] = value;
+    if (source === "scheduler" && options.storeConnected !== false) {
+      writeLastConnectedJson(node, value);
     }
     if (source === "image") {
       node.properties[IMPORTED_FILE_PROPERTY] = fileName;
@@ -1549,10 +1571,13 @@ function setupDisplayNode(node) {
       node.properties = node.properties || {};
       node.properties[IMPORTED_FILE_PROPERTY] = "";
       node.properties[IMPORTED_IMAGE_PROPERTY] = null;
-      const live = node.properties[LAST_LIVE_JSON_PROPERTY] || "";
-      node.__pm4aPromptDisplaySetJson(live, { source: "scheduler", storeLive: false });
+      const connected = readLastConnectedJson(node);
+      node.__pm4aPromptDisplaySetJson(connected, {
+        source: "scheduler",
+        storeConnected: false,
+      });
     });
-    setStatus(t("已恢复实时输出"));
+    setStatus(t("已清除图片快照"));
   };
 
   const importImage = async (file) => {
@@ -1698,30 +1723,29 @@ app.registerExtension({
     const originalExecuted = nodeType.prototype.onExecuted;
     nodeType.prototype.onExecuted = function (message) {
       originalExecuted?.apply(this, arguments);
-      const live = extractLiveJson(message);
-      if (live !== null) {
-        this.properties = this.properties || {};
-        this.properties[LAST_LIVE_JSON_PROPERTY] = live;
+      const connected = extractPromptConnected(message);
+      const wire = extractConnectedJson(message);
+      // Cache wire content only when prompt_json was actually connected this run.
+      if (connected && wire !== null) {
+        writeLastConnectedJson(this, wire);
       }
-      // Dropping an image mid-batch updates the live widget, but already-queued
-      // jobs still execute with a stale empty imported_json and would push the
-      // next item's scheduler prompt into the UI. Keep the image snapshot.
       const importedWidget = this.widgets?.find((widget) => widget.name === "imported_json");
       if (shouldKeepImportedPromptDisplay({
         importedJson: typeof importedWidget?.value === "string" ? importedWidget.value : "",
         importedImage: this.properties?.[IMPORTED_IMAGE_PROPERTY],
       })) {
+        // Image snapshot wins until cleared; do not treat executions as a live stream.
         return;
       }
-      const raw = extractJson(message);
-      const source = extractSource(message) === "image" ? "image" : "scheduler";
-      if (raw !== null) {
-        this.__pm4aPromptDisplaySetJson?.(raw, {
-          source,
-          fileName: this.properties?.[IMPORTED_FILE_PROPERTY] || "",
-          storeLive: source === "scheduler",
-        });
+      if (!connected) {
+        // No prompt_json link: nothing to follow for this execution.
+        return;
       }
+      const raw = extractJson(message) ?? wire ?? "";
+      this.__pm4aPromptDisplaySetJson?.(raw, {
+        source: "scheduler",
+        storeConnected: false,
+      });
     };
   },
 });
