@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 try:
-    from ..domain.wildcard_syntax import reference_keys
+    from ..domain.wildcard_syntax import (
+        reference_keys,
+        sequential_leaf_count,
+        sequential_reference_keys,
+    )
     from ..storage.prompt_documents import (
         merge_double_sample_parameters,
         merge_lora_texts,
@@ -27,7 +31,11 @@ try:
         normalize_key,
     )
 except ImportError:  # standalone preview
-    from domain.wildcard_syntax import reference_keys  # type: ignore
+    from domain.wildcard_syntax import (  # type: ignore
+        reference_keys,
+        sequential_leaf_count,
+        sequential_reference_keys,
+    )
     from storage.prompt_documents import (  # type: ignore
         merge_double_sample_parameters,
         merge_lora_texts,
@@ -131,6 +139,19 @@ def wildcard_keys(text: str) -> list[str]:
         dict.fromkeys(
             normalize_key(key)
             for key in reference_keys(text)
+            if key.strip()
+        )
+    )
+
+
+def sequential_wildcard_keys(text: str) -> list[str]:
+    """Top-level ``__key__`` tokens only (excludes ``{}`` / ``N#``)."""
+    if not isinstance(text, str) or not text:
+        return []
+    return list(
+        dict.fromkeys(
+            normalize_key(key)
+            for key in sequential_reference_keys(text)
             if key.strip()
         )
     )
@@ -248,11 +269,11 @@ def sequence_cycle_length(
     track_id: str = "",
     max_probe: int = MAX_SEQUENCE_CYCLE_PROBE,
 ) -> int:
-    """Return the nested sequential period for one track text.
+    """Return the shared-index sequential period for one track text.
 
     Dry-runs expansion with increasing execution_index until the index-0
-    selection fingerprint repeats. Returns 0 when probing fails so callers
-    can fall back to top-level folder sizes.
+    selection fingerprint repeats. Kept for diagnostics; task counting uses
+    :func:`hierarchical_cycle_length` instead.
     """
     if not isinstance(text, str) or not text.strip():
         return 0
@@ -284,16 +305,41 @@ def sequence_cycle_length(
     return limit
 
 
+def hierarchical_cycle_length(
+    text: str,
+    *,
+    resolver: LibraryWildcardResolver,
+    stack: tuple[str, ...] = (),
+) -> int:
+    """Count one track's sequential ``__key__`` leaf space.
+
+    Matches expansion: nested branches under one key sum; multiple top-level
+    ``__key__`` tokens in the same text multiply (left outer, right inner).
+    Inline ``{}`` / ``N#`` constructs do not lengthen the cycle.
+    """
+    try:
+        return int(
+            sequential_leaf_count(
+                text,
+                resolver,
+                stack=stack,
+            )
+        )
+    except Exception:
+        return 0
+
+
 def cycle_summary(config: Any) -> dict[str, Any]:
-    """Count top-level folders and the longest nested sequential cycle."""
+    """Count each sequential track's leaf space, then take the longest track."""
     clean = normalize_config(config)
     resolver = prompt_library.snapshot_resolver()
     folders = list(
         dict.fromkeys(
             key
             for track in clean["tracks"]
-            if track["enabled"]
-            for key in track_folder_keys(track, resolver=resolver)
+            if track["enabled"] and track["mode"] == "sequence"
+            for key in sequential_wildcard_keys(track["text"])
+            if _is_sequenceable_key(key, resolver)
         )
     )
     counts = folder_counts(folders, resolver=resolver)
@@ -302,21 +348,14 @@ def cycle_summary(config: Any) -> dict[str, Any]:
     for track in clean["tracks"]:
         if not track["enabled"] or track["mode"] != "sequence":
             continue
-        nested = sequence_cycle_length(
+        nested = hierarchical_cycle_length(
             track["text"],
             resolver=resolver,
-            track_id=track["id"],
         )
         if nested > 0:
             sequence_lengths.append(nested)
-            continue
-        top_level = [
-            counts.get(key, 0)
-            for key in track_folder_keys(track, resolver=resolver)
-            if counts.get(key, 0) > 0
-        ]
-        if top_level:
-            sequence_lengths.append(max(top_level))
+        # No fallback: keys inside ``{}`` / ``N#`` are random-only and must not
+        # inflate the sequential task count.
 
     return {
         "counts": counts,

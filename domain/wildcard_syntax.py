@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from hashlib import sha256
 from math import isfinite
@@ -428,6 +428,131 @@ def reference_keys(text: str) -> tuple[str, ...]:
     return collect(parse(text))
 
 
+def sequential_reference_keys(text: str) -> tuple[str, ...]:
+    """Keys that participate in sequential leaf space (top-level ``__key__`` only).
+
+    Ignores ``{a|b}``, weighted/multi-select choices, and ``N#__key__``.
+    """
+
+    def collect(nodes: _Sequence) -> tuple[str, ...]:
+        return tuple(
+            node.key for node in nodes if isinstance(node, _Reference)
+        )
+
+    if not isinstance(text, str) or not text.strip():
+        return ()
+    return collect(parse(text))
+
+
+def sequential_leaf_count(
+    text: str,
+    resolver: WildcardResolver,
+    *,
+    max_depth: int = 100,
+    stack: tuple[str, ...] = (),
+) -> int:
+    """Size of the sequential leaf space for one prompt text.
+
+    - ``__key__`` alternatives (folder/file options) sum — exhaust branches L→R.
+    - Multiple top-level ``__key__`` tokens multiply (outer-left, inner-right).
+    - ``{a|b}``, weights, ``$$`` multi-select, and ``N#__key__`` are ignored
+      (always random at expand time; they do not lengthen the sequential cycle).
+    """
+    if not isinstance(text, str) or not text.strip():
+        return 0
+    if max_depth < 1:
+        return 0
+    return _leaf_count_nodes(parse(text), resolver, stack, max_depth)
+
+
+def _product(sizes: Sequence[int]) -> int:
+    total = 1
+    for size in sizes:
+        total *= size
+    return total
+
+
+def _decode_product_coords(index: int, sizes: Sequence[int]) -> tuple[int, ...]:
+    """Map a flat index onto axis coordinates; rightmost axis varies fastest."""
+    if not sizes:
+        return ()
+    coords = [0] * len(sizes)
+    remaining = int(index)
+    for axis in range(len(sizes) - 1, -1, -1):
+        size = sizes[axis]
+        coords[axis] = remaining % size
+        remaining //= size
+    return tuple(coords)
+
+
+def _leaf_count_nodes(
+    nodes: _Sequence,
+    resolver: WildcardResolver,
+    stack: tuple[str, ...],
+    max_depth: int,
+) -> int:
+    axes: list[int] = []
+    for node in nodes:
+        if isinstance(node, _Reference):
+            count = _leaf_count_key(node.key, resolver, stack, max_depth)
+            if count > 0:
+                axes.append(count)
+        # Choices / quantified refs stay random and do not form sequential axes.
+    if not axes:
+        return 0
+    return _product(axes)
+
+
+def _option_stack_entry(candidate_key: str, option_index: int) -> str:
+    """Distinguish multi-line TXT options that share one file key."""
+    return f"{candidate_key}#{option_index}"
+
+
+def _leaf_count_key(
+    key: str,
+    resolver: WildcardResolver,
+    stack: tuple[str, ...],
+    max_depth: int,
+) -> int:
+    if not key or key in stack or len(stack) >= max_depth:
+        return 0
+    candidates = tuple(resolver.resolve(key))
+    if not candidates:
+        return 0
+    # Push the reference key so ``__key__`` inside content cannot recurse.
+    # Do not treat sibling options as cycles: multi-line TXT shares one file key.
+    next_stack = stack + (key,)
+    total = 0
+    for option_index, candidate in enumerate(candidates):
+        nested = _leaf_count_nodes(
+            parse(candidate.content),
+            resolver,
+            next_stack + (_option_stack_entry(candidate.key, option_index),),
+            max_depth,
+        )
+        total += nested if nested > 0 else 1
+    return total
+
+
+def _pick_leaf_index(size: int, context: ExpansionContext) -> int:
+    if size <= 0:
+        return 0
+    if context.mode == "sequence":
+        return context.execution_index % size
+    if context.mode == "shuffle":
+        cycle, offset = divmod(context.execution_index, size)
+        order = _shuffled_order(size, _shuffle_seed(context, cycle, "leaf-space"))
+        return order[offset]
+    return Random(_seed(context, 0, "leaf-space")).randrange(size)
+
+
+def _random_context(context: ExpansionContext) -> ExpansionContext:
+    """Force Impact-style random selection for ``{}`` / ``N#`` constructs."""
+    if context.mode == "random":
+        return context
+    return replace(context, mode="random")
+
+
 def _seed(context: ExpansionContext, occurrence: int, purpose: str) -> int:
     payload = "\x1f".join(
         (
@@ -573,6 +698,8 @@ def _candidate_content(
     state: _RuntimeState,
     accumulator: _ResultAccumulator,
     stack: tuple[str, ...],
+    *,
+    content_leaf_index: int | None,
 ) -> str:
     if candidate.key in stack:
         raise WildcardResolutionError(
@@ -596,6 +723,7 @@ def _candidate_content(
         state,
         accumulator,
         stack + (candidate.key,),
+        leaf_index=content_leaf_index,
     )
 
 
@@ -607,6 +735,7 @@ def _resolve_reference(
     accumulator: _ResultAccumulator,
     stack: tuple[str, ...],
 ) -> str:
+    """Expand one ``__key__`` with mode-based selection (used inside random ``{}``)."""
     if len(stack) >= context.max_depth:
         raise WildcardResolutionError(
             f"通配符引用超过最大深度 {context.max_depth}，位置 {reference.position}"
@@ -634,6 +763,73 @@ def _resolve_reference(
         state,
         accumulator,
         stack,
+        content_leaf_index=None,
+    )
+
+
+def _resolve_reference_at_leaf(
+    reference: _Reference,
+    leaf_index: int,
+    resolver: WildcardResolver,
+    context: ExpansionContext,
+    state: _RuntimeState,
+    accumulator: _ResultAccumulator,
+    stack: tuple[str, ...],
+) -> str:
+    """Expand one ``__key__`` to the leaf at ``leaf_index`` (tree walk)."""
+    if len(stack) >= context.max_depth:
+        raise WildcardResolutionError(
+            f"通配符引用超过最大深度 {context.max_depth}，位置 {reference.position}"
+        )
+    if reference.key in stack:
+        raise WildcardResolutionError(
+            f"检测到循环通配符引用 {reference.key!r}，位置 {reference.position}"
+        )
+    candidates = tuple(resolver.resolve(reference.key))
+    if not candidates:
+        raise WildcardResolutionError(
+            f"无法解析通配符 {reference.key!r}，位置 {reference.position}"
+        )
+
+    next_stack = stack + (reference.key,)
+    remaining = int(leaf_index)
+    for option_index, candidate in enumerate(candidates):
+        nested = _leaf_count_nodes(
+            parse(candidate.content),
+            resolver,
+            next_stack + (_option_stack_entry(candidate.key, option_index),),
+            context.max_depth,
+        )
+        branch_size = nested if nested > 0 else 1
+        if remaining < branch_size:
+            return _candidate_content(
+                candidate,
+                reference,
+                resolver,
+                context,
+                state,
+                accumulator,
+                stack,
+                content_leaf_index=remaining if nested > 0 else None,
+            )
+        remaining -= branch_size
+
+    # Defensive wrap if caller index was out of range.
+    total = _leaf_count_key(
+        reference.key, resolver, stack, context.max_depth
+    )
+    if total <= 0:
+        raise WildcardResolutionError(
+            f"无法解析通配符 {reference.key!r}，位置 {reference.position}"
+        )
+    return _resolve_reference_at_leaf(
+        reference,
+        int(leaf_index) % total,
+        resolver,
+        context,
+        state,
+        accumulator,
+        stack,
     )
 
 
@@ -645,6 +841,8 @@ def _expand_choice(
     accumulator: _ResultAccumulator,
     stack: tuple[str, ...],
 ) -> str:
+    # ``{}`` is always random, even when the track mode is sequence/shuffle.
+    context = _random_context(context)
     direct_reference: _Reference | None = None
     if (
         len(choice.options) == 1
@@ -686,6 +884,7 @@ def _expand_choice(
                 state,
                 accumulator,
                 stack,
+                content_leaf_index=None,
             )
             for index in selected
         )
@@ -711,6 +910,7 @@ def _expand_choice(
             state,
             accumulator,
             stack,
+            leaf_index=None,
         )
         for index in selected
     )
@@ -723,24 +923,60 @@ def _expand_nodes(
     state: _RuntimeState,
     accumulator: _ResultAccumulator,
     stack: tuple[str, ...],
+    *,
+    leaf_index: int | None,
 ) -> str:
+    ref_nodes = [node for node in nodes if isinstance(node, _Reference)]
+    ref_coords: list[int] | None = None
+    if ref_nodes and leaf_index is not None:
+        sizes: list[int] = []
+        for node in ref_nodes:
+            count = _leaf_count_key(
+                node.key, resolver, stack, context.max_depth
+            )
+            if count < 1:
+                raise WildcardResolutionError(
+                    f"无法解析通配符 {node.key!r}，位置 {node.position}"
+                )
+            sizes.append(count)
+        total = _product(sizes)
+        ref_coords = list(
+            _decode_product_coords(int(leaf_index) % total, sizes)
+        )
+
     parts: list[str] = []
+    ref_i = 0
     for node in nodes:
         if isinstance(node, _Literal):
             parts.append(node.text)
         elif isinstance(node, _Reference):
-            parts.append(
-                _resolve_reference(
-                    node, resolver, context, state, accumulator, stack
+            if ref_coords is not None:
+                parts.append(
+                    _resolve_reference_at_leaf(
+                        node,
+                        ref_coords[ref_i],
+                        resolver,
+                        context,
+                        state,
+                        accumulator,
+                        stack,
+                    )
                 )
-            )
+                ref_i += 1
+            else:
+                parts.append(
+                    _resolve_reference(
+                        node, resolver, context, state, accumulator, stack
+                    )
+                )
         elif isinstance(node, _QuantifiedReference):
+            random_context = _random_context(context)
             parts.append(
                 "|".join(
                     _resolve_reference(
                         node.reference,
                         resolver,
-                        context,
+                        random_context,
                         state,
                         accumulator,
                         stack,
@@ -762,19 +998,30 @@ def expand(
     resolver: WildcardResolver,
     context: ExpansionContext,
 ) -> ExpansionResult:
-    """Expand wildcard syntax and preserve selected-card metadata."""
+    """Expand wildcard syntax and preserve selected-card metadata.
+
+    Sequential / shuffle / random track modes address the ``__key__`` leaf
+    space (nested branches sum; same-text keys form a product). Inline
+    ``{a|b}`` choices and ``N#__key__`` always select randomly.
+    """
     if context.mode not in _MODES:
         raise WildcardSyntaxError(f"无效的通配符选择模式：{context.mode}")
     if context.max_depth < 1:
         raise WildcardSyntaxError("通配符最大递归深度必须至少为 1")
+    nodes = parse(text)
+    leaf_size = _leaf_count_nodes(nodes, resolver, (), context.max_depth)
+    leaf_index = (
+        _pick_leaf_index(leaf_size, context) if leaf_size > 0 else None
+    )
     accumulator = _ResultAccumulator([], [], [], [], [], [])
     expanded = _expand_nodes(
-        parse(text),
+        nodes,
         resolver,
         context,
         _RuntimeState({}),
         accumulator,
         (),
+        leaf_index=leaf_index,
     )
     return ExpansionResult(
         text=expanded,
