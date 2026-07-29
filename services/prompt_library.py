@@ -18,6 +18,7 @@ try:
         align_models_list,
         remap_lora_payload,
     )
+    from ..storage import library_index_cache as index_cache
     from ..storage import library_metadata as metadata
     from ..storage.prompt_documents import (
         IMAGE_EXTS,
@@ -66,6 +67,7 @@ except ImportError:  # standalone preview
         align_models_list,
         remap_lora_payload,
     )
+    from storage import library_index_cache as index_cache  # type: ignore
     from storage import library_metadata as metadata  # type: ignore
     from storage.prompt_documents import (  # type: ignore
         IMAGE_EXTS,
@@ -248,13 +250,88 @@ def _build_folder_indexes(
     return folder_dict, folder_display_paths
 
 
-def reload(root: Optional[Path] = None) -> None:
-    """Scan wildcards directory into file and folder dictionaries."""
+def _publish_library_indexes(
+    root: Path,
+    *,
+    file_dict: dict[str, list[str]],
+    file_paths: dict[str, Path],
+    display_paths: dict[str, str],
+    negative_dict: dict[str, str],
+    note_dict: dict[str, str],
+    lora_dict: dict[str, dict[str, Any]],
+    settings_dict: dict[str, dict[str, Any]],
+    folder_dict: dict[str, list[str]],
+    folder_display_paths: dict[str, str],
+    conflict_keys: tuple[str, ...],
+) -> None:
     global _file_dict, _folder_dict, _file_paths
     global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
     global _folder_display_paths, _conflict_keys, _loaded_root
+    with _lock:
+        _file_dict = file_dict
+        _folder_dict = folder_dict
+        _file_paths = file_paths
+        _display_paths = display_paths
+        _negative_dict = negative_dict
+        _note_dict = note_dict
+        _lora_dict = lora_dict
+        _settings_dict = settings_dict
+        _folder_display_paths = folder_display_paths
+        _conflict_keys = conflict_keys
+        _loaded_root = root
 
-    root = Path(root) if root is not None else get_wildcards_path()
+
+def _write_index_cache(
+    root: Path,
+    *,
+    fingerprint: dict[str, Any],
+    file_dict: dict[str, list[str]],
+    file_paths: dict[str, Path],
+    display_paths: dict[str, str],
+    negative_dict: dict[str, str],
+    note_dict: dict[str, str],
+    lora_dict: dict[str, dict[str, Any]],
+    settings_dict: dict[str, dict[str, Any]],
+    folder_display_paths: dict[str, str],
+    conflict_keys: tuple[str, ...],
+) -> None:
+    entries: dict[str, dict[str, Any]] = {}
+    for key, path in file_paths.items():
+        try:
+            relative = path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        entries[key] = {
+            "path": relative,
+            "display_path": display_paths.get(key, key),
+            "options": list(file_dict.get(key) or []),
+            "negative": negative_dict.get(key, ""),
+            "note": note_dict.get(key, ""),
+            "lora": dict(lora_dict.get(key) or empty_lora_payload()),
+            "settings": _copy_settings(settings_dict.get(key)),
+        }
+    empty_folders = {
+        key: display
+        for key, display in folder_display_paths.items()
+        if key and key != ROOT_WILDCARD_KEY
+    }
+    snapshot = index_cache.build_snapshot(
+        root,
+        fingerprint=fingerprint,
+        entries=entries,
+        empty_folders=empty_folders,
+        conflict_keys=list(conflict_keys),
+    )
+    try:
+        index_cache.write_snapshot(root, snapshot)
+    except OSError as exc:
+        logger.warning("Could not write library index cache: %s", exc)
+
+
+def _apply_index_cache_snapshot(root: Path, snapshot: dict[str, Any]) -> bool:
+    entries = snapshot.get("entries")
+    if not isinstance(entries, dict):
+        return False
     file_dict: dict[str, list[str]] = {}
     file_paths: dict[str, Path] = {}
     display_paths: dict[str, str] = {}
@@ -262,95 +339,38 @@ def reload(root: Optional[Path] = None) -> None:
     note_dict: dict[str, str] = {}
     lora_dict: dict[str, dict[str, Any]] = {}
     settings_dict: dict[str, dict[str, Any]] = {}
+    for key, raw in entries.items():
+        if not isinstance(key, str) or not isinstance(raw, dict):
+            return False
+        if not _absorb_cached_entry(
+            key,
+            raw,
+            root,
+            file_dict=file_dict,
+            file_paths=file_paths,
+            display_paths=display_paths,
+            negative_dict=negative_dict,
+            note_dict=note_dict,
+            lora_dict=lora_dict,
+            settings_dict=settings_dict,
+        ):
+            return False
 
-    if not root.is_dir():
-        logger.warning("Wildcards root does not exist: %s", root)
-        with _lock:
-            _file_dict = {}
-            _folder_dict = {}
-            _file_paths = {}
-            _display_paths = {}
-            _negative_dict = {}
-            _note_dict = {}
-            _lora_dict = {}
-            _settings_dict = {}
-            _folder_display_paths = {}
-            _conflict_keys = ()
-            _loaded_root = root
-        return
-
-    # Collect every .txt under root
-    for txt in root.rglob("*.txt"):
-        if not txt.is_file():
-            continue
-        try:
-            rel = txt.relative_to(root)
-        except ValueError:
-            continue
-        if rel.parts and rel.parts[0].casefold() == metadata.INTERNAL_DIR_NAME.casefold():
-            continue
-        rel_without_suffix = rel.with_suffix("")
-        display_path = str(rel_without_suffix).replace("\\", "/")
-        key = normalize_key(display_path)
-        if not key:
-            continue
-        try:
-            options = list(read_prompt_document(txt).options)
-        except (OSError, ValueError) as exc:
-            logger.warning("Failed to read %s: %s", txt, exc)
-            continue
-        if not options:
-            continue
-        file_dict[key] = options
-        file_paths[key] = txt
-        display_paths[key] = display_path
-        negative_dict[key] = ""
-        note_dict[key] = ""
-        lora_dict[key] = empty_lora_payload()
-        settings_dict[key] = empty_card_settings()
-
-    conflict_keys: set[str] = set()
-    # JSON and TXT with the same logical key are ambiguous and neither is indexed.
-    for prompt_json in root.rglob("*.json"):
-        if not prompt_json.is_file():
-            continue
-        try:
-            rel = prompt_json.relative_to(root)
-        except ValueError:
-            continue
-        if rel.parts and rel.parts[0].casefold() == metadata.INTERNAL_DIR_NAME.casefold():
-            continue
-        rel_without_suffix = rel.with_suffix("")
-        display_path = str(rel_without_suffix).replace("\\", "/")
-        key = normalize_key(display_path)
-        if not key:
-            continue
-        existing_path = file_paths.get(key)
-        if existing_path and existing_path.suffix.casefold() == ".txt":
-            conflict_keys.add(key)
-            file_dict.pop(key, None)
-            file_paths.pop(key, None)
-            display_paths.pop(key, None)
-            negative_dict.pop(key, None)
-            note_dict.pop(key, None)
-            lora_dict.pop(key, None)
-            settings_dict.pop(key, None)
-            logger.error(
-                "Conflicting TXT and JSON prompt documents share key %s", key
-            )
-            continue
-        try:
-            document = read_prompt_document(prompt_json)
-        except ValueError as exc:
-            logger.warning("%s", exc)
-            continue
-        file_dict[key] = list(document.options)
-        file_paths[key] = prompt_json
-        display_paths[key] = display_path
-        negative_dict[key] = document.negative
-        note_dict[key] = document.note
-        lora_dict[key] = dict(document.lora)
-        settings_dict[key] = card_settings_from_document(document)
+    empty_folders = snapshot.get("empty_folders")
+    if not isinstance(empty_folders, dict):
+        empty_folders = {}
+    known_folders = {
+        str(key): str(display)
+        for key, display in empty_folders.items()
+        if isinstance(key, str) and isinstance(display, str) and key
+    }
+    folder_dict, folder_display_paths = _rebuild_folder_indexes_from_known(
+        file_dict, display_paths, known_folders
+    )
+    conflict_raw = snapshot.get("conflict_keys") or []
+    conflict_keys = tuple(
+        sorted(str(key) for key in conflict_raw if isinstance(key, str))
+    )
 
     try:
         metadata.reconcile_entries(
@@ -366,29 +386,457 @@ def reload(root: Optional[Path] = None) -> None:
     except OSError as exc:
         logger.warning("Wildcard metadata could not be reconciled: %s", exc)
 
-    folder_dict, folder_display_paths = _build_folder_indexes(
-        file_dict, display_paths, root
+    _publish_library_indexes(
+        root,
+        file_dict=file_dict,
+        file_paths=file_paths,
+        display_paths=display_paths,
+        negative_dict=negative_dict,
+        note_dict=note_dict,
+        lora_dict=lora_dict,
+        settings_dict=settings_dict,
+        folder_dict=folder_dict,
+        folder_display_paths=folder_display_paths,
+        conflict_keys=conflict_keys,
     )
+    logger.info(
+        "Loaded %d wildcard files, %d folder keys from cache (%s)",
+        len(file_dict),
+        len(folder_dict),
+        root,
+    )
+    return True
 
-    with _lock:
-        _file_dict = file_dict
-        _folder_dict = folder_dict
-        _file_paths = file_paths
-        _display_paths = display_paths
-        _negative_dict = negative_dict
-        _note_dict = note_dict
-        _lora_dict = lora_dict
-        _settings_dict = settings_dict
-        _folder_display_paths = folder_display_paths
-        _conflict_keys = tuple(sorted(conflict_keys))
-        _loaded_root = root
 
+def _known_folders_from_directories(directories: Iterable[str]) -> dict[str, str]:
+    known: dict[str, str] = {}
+    for raw in directories:
+        if not isinstance(raw, str) or not raw:
+            continue
+        display = raw.replace("\\", "/")
+        key = normalize_key(display)
+        if key:
+            known[key] = display
+    return known
+
+
+def _drop_indexed_key(
+    key: str,
+    *,
+    file_dict: dict[str, list[str]],
+    file_paths: dict[str, Path],
+    display_paths: dict[str, str],
+    negative_dict: dict[str, str],
+    note_dict: dict[str, str],
+    lora_dict: dict[str, dict[str, Any]],
+    settings_dict: dict[str, dict[str, Any]],
+) -> None:
+    file_dict.pop(key, None)
+    file_paths.pop(key, None)
+    display_paths.pop(key, None)
+    negative_dict.pop(key, None)
+    note_dict.pop(key, None)
+    lora_dict.pop(key, None)
+    settings_dict.pop(key, None)
+
+
+def _display_path_from_relative(relative: str) -> str:
+    lowered = relative.casefold()
+    if lowered.endswith(".json"):
+        return relative[: -len(".json")]
+    if lowered.endswith(".txt"):
+        return relative[: -len(".txt")]
+    return relative
+
+
+def _absorb_cached_entry(
+    key: str,
+    raw: dict[str, Any],
+    root: Path,
+    *,
+    file_dict: dict[str, list[str]],
+    file_paths: dict[str, Path],
+    display_paths: dict[str, str],
+    negative_dict: dict[str, str],
+    note_dict: dict[str, str],
+    lora_dict: dict[str, dict[str, Any]],
+    settings_dict: dict[str, dict[str, Any]],
+) -> bool:
+    relative = raw.get("path")
+    options = raw.get("options")
+    display_path = raw.get("display_path")
+    if not isinstance(relative, str) or not isinstance(options, list):
+        return False
+    if not isinstance(display_path, str) or not display_path:
+        display_path = key
+    path = root.joinpath(*relative.split("/"))
+    file_dict[key] = [str(option) for option in options]
+    file_paths[key] = path
+    display_paths[key] = display_path
+    negative_dict[key] = str(raw.get("negative") or "")
+    note_dict[key] = str(raw.get("note") or "")
+    lora = raw.get("lora")
+    lora_dict[key] = dict(lora) if isinstance(lora, dict) else empty_lora_payload()
+    settings = raw.get("settings")
+    settings_dict[key] = (
+        _copy_settings(settings) if isinstance(settings, dict) else empty_card_settings()
+    )
+    return True
+
+
+def _index_prompt_file_from_disk(
+    root: Path,
+    relative: str,
+    *,
+    file_dict: dict[str, list[str]],
+    file_paths: dict[str, Path],
+    display_paths: dict[str, str],
+    negative_dict: dict[str, str],
+    note_dict: dict[str, str],
+    lora_dict: dict[str, dict[str, Any]],
+    settings_dict: dict[str, dict[str, Any]],
+    conflict_keys: set[str],
+) -> None:
+    path = root.joinpath(*relative.split("/"))
+    if not path.is_file():
+        return
+    display_path = _display_path_from_relative(relative)
+    key = normalize_key(display_path)
+    if not key:
+        return
+    suffix = path.suffix.casefold()
+    try:
+        document = read_prompt_document(path)
+    except (OSError, ValueError) as exc:
+        logger.warning("Failed to read %s: %s", path, exc)
+        return
+    # Empty TXT is ignored on full scan; must not knock out an already-indexed JSON
+    # sibling during incremental reread.
+    if suffix == ".txt" and not document.options:
+        return
+    existing = file_paths.get(key)
+    if existing is not None and existing.suffix.casefold() != suffix:
+        conflict_keys.add(key)
+        _drop_indexed_key(
+            key,
+            file_dict=file_dict,
+            file_paths=file_paths,
+            display_paths=display_paths,
+            negative_dict=negative_dict,
+            note_dict=note_dict,
+            lora_dict=lora_dict,
+            settings_dict=settings_dict,
+        )
+        logger.error("Conflicting TXT and JSON prompt documents share key %s", key)
+        return
+    file_dict[key] = list(document.options)
+    file_paths[key] = path
+    display_paths[key] = display_path
+    if suffix == ".txt":
+        negative_dict[key] = ""
+        note_dict[key] = ""
+        lora_dict[key] = empty_lora_payload()
+        settings_dict[key] = empty_card_settings()
+    else:
+        negative_dict[key] = document.negative
+        note_dict[key] = document.note
+        lora_dict[key] = dict(document.lora)
+        settings_dict[key] = card_settings_from_document(document)
+
+
+def _finalize_loaded_indexes(
+    root: Path,
+    *,
+    fingerprint: dict[str, Any],
+    file_dict: dict[str, list[str]],
+    file_paths: dict[str, Path],
+    display_paths: dict[str, str],
+    negative_dict: dict[str, str],
+    note_dict: dict[str, str],
+    lora_dict: dict[str, dict[str, Any]],
+    settings_dict: dict[str, dict[str, Any]],
+    conflict_keys: set[str],
+    folder_source: str,
+) -> None:
+    try:
+        metadata.reconcile_entries(
+            root,
+            {
+                key: (display_paths[key], "\n".join(options))
+                for key, options in file_dict.items()
+                if options
+            },
+        )
+    except metadata.MetadataError as exc:
+        logger.error("Wildcard metadata was not loaded: %s", exc)
+    except OSError as exc:
+        logger.warning("Wildcard metadata could not be reconciled: %s", exc)
+
+    if folder_source == "disk-rglob":
+        folder_dict, folder_display_paths = _build_folder_indexes(
+            file_dict, display_paths, root
+        )
+    else:
+        known_folders = _known_folders_from_directories(
+            fingerprint.get("directories") or []
+        )
+        folder_dict, folder_display_paths = _rebuild_folder_indexes_from_known(
+            file_dict, display_paths, known_folders
+        )
+
+    conflict_tuple = tuple(sorted(conflict_keys))
+    _publish_library_indexes(
+        root,
+        file_dict=file_dict,
+        file_paths=file_paths,
+        display_paths=display_paths,
+        negative_dict=negative_dict,
+        note_dict=note_dict,
+        lora_dict=lora_dict,
+        settings_dict=settings_dict,
+        folder_dict=folder_dict,
+        folder_display_paths=folder_display_paths,
+        conflict_keys=conflict_tuple,
+    )
+    _write_index_cache(
+        root,
+        fingerprint=fingerprint,
+        file_dict=file_dict,
+        file_paths=file_paths,
+        display_paths=display_paths,
+        negative_dict=negative_dict,
+        note_dict=note_dict,
+        lora_dict=lora_dict,
+        settings_dict=settings_dict,
+        folder_display_paths=folder_display_paths,
+        conflict_keys=conflict_tuple,
+    )
     logger.info(
         "Loaded %d wildcard files, %d folder keys from %s",
         len(file_dict),
         len(folder_dict),
         root,
     )
+
+
+def _reload_full_scan(root: Path) -> None:
+    file_dict: dict[str, list[str]] = {}
+    file_paths: dict[str, Path] = {}
+    display_paths: dict[str, str] = {}
+    negative_dict: dict[str, str] = {}
+    note_dict: dict[str, str] = {}
+    lora_dict: dict[str, dict[str, Any]] = {}
+    settings_dict: dict[str, dict[str, Any]] = {}
+    conflict_keys: set[str] = set()
+
+    for txt in root.rglob("*.txt"):
+        if not txt.is_file():
+            continue
+        try:
+            rel = txt.relative_to(root)
+        except ValueError:
+            continue
+        if rel.parts and rel.parts[0].casefold() == metadata.INTERNAL_DIR_NAME.casefold():
+            continue
+        _index_prompt_file_from_disk(
+            root,
+            rel.as_posix(),
+            file_dict=file_dict,
+            file_paths=file_paths,
+            display_paths=display_paths,
+            negative_dict=negative_dict,
+            note_dict=note_dict,
+            lora_dict=lora_dict,
+            settings_dict=settings_dict,
+            conflict_keys=conflict_keys,
+        )
+
+    for prompt_json in root.rglob("*.json"):
+        if not prompt_json.is_file():
+            continue
+        try:
+            rel = prompt_json.relative_to(root)
+        except ValueError:
+            continue
+        if rel.parts and rel.parts[0].casefold() == metadata.INTERNAL_DIR_NAME.casefold():
+            continue
+        _index_prompt_file_from_disk(
+            root,
+            rel.as_posix(),
+            file_dict=file_dict,
+            file_paths=file_paths,
+            display_paths=display_paths,
+            negative_dict=negative_dict,
+            note_dict=note_dict,
+            lora_dict=lora_dict,
+            settings_dict=settings_dict,
+            conflict_keys=conflict_keys,
+        )
+
+    fingerprint = index_cache.collect_disk_fingerprint(root)
+    _finalize_loaded_indexes(
+        root,
+        fingerprint=fingerprint,
+        file_dict=file_dict,
+        file_paths=file_paths,
+        display_paths=display_paths,
+        negative_dict=negative_dict,
+        note_dict=note_dict,
+        lora_dict=lora_dict,
+        settings_dict=settings_dict,
+        conflict_keys=conflict_keys,
+        folder_source="disk-rglob",
+    )
+
+
+def _reload_incremental_from_cache(
+    root: Path,
+    snapshot: dict[str, Any],
+    current_fingerprint: dict[str, Any],
+) -> bool:
+    cached_fingerprint = snapshot.get("fingerprint")
+    entries = snapshot.get("entries")
+    if not isinstance(cached_fingerprint, dict) or not isinstance(entries, dict):
+        return False
+    if not entries and (current_fingerprint.get("files") or {}):
+        return False
+
+    added, _removed, changed = index_cache.diff_file_fingerprints(
+        cached_fingerprint, current_fingerprint
+    )
+    reread = set(added) | set(changed)
+    cached_by_path: dict[str, tuple[str, dict[str, Any]]] = {}
+    for key, raw in entries.items():
+        if not isinstance(key, str) or not isinstance(raw, dict):
+            return False
+        relative = raw.get("path")
+        if not isinstance(relative, str):
+            return False
+        cached_by_path[relative.replace("\\", "/")] = (key, raw)
+
+    file_dict: dict[str, list[str]] = {}
+    file_paths: dict[str, Path] = {}
+    display_paths: dict[str, str] = {}
+    negative_dict: dict[str, str] = {}
+    note_dict: dict[str, str] = {}
+    lora_dict: dict[str, dict[str, Any]] = {}
+    settings_dict: dict[str, dict[str, Any]] = {}
+    conflict_keys: set[str] = set()
+
+    tracked_files = current_fingerprint.get("files") or {}
+    for relative in tracked_files:
+        if not isinstance(relative, str):
+            continue
+        norm_rel = relative.replace("\\", "/")
+        if norm_rel in reread:
+            continue
+        cached = cached_by_path.get(norm_rel)
+        if cached is None:
+            # Not in the snapshot (prior conflict / unreadable / empty, or a
+            # survivor after the conflicting sibling was deleted). Retry disk
+            # indexing even when mtime/size did not change.
+            reread.add(norm_rel)
+            continue
+        key, raw = cached
+        if not _absorb_cached_entry(
+            key,
+            raw,
+            root,
+            file_dict=file_dict,
+            file_paths=file_paths,
+            display_paths=display_paths,
+            negative_dict=negative_dict,
+            note_dict=note_dict,
+            lora_dict=lora_dict,
+            settings_dict=settings_dict,
+        ):
+            return False
+
+    for relative in sorted(reread):
+        _index_prompt_file_from_disk(
+            root,
+            relative.replace("\\", "/"),
+            file_dict=file_dict,
+            file_paths=file_paths,
+            display_paths=display_paths,
+            negative_dict=negative_dict,
+            note_dict=note_dict,
+            lora_dict=lora_dict,
+            settings_dict=settings_dict,
+            conflict_keys=conflict_keys,
+        )
+    _finalize_loaded_indexes(
+        root,
+        fingerprint=current_fingerprint,
+        file_dict=file_dict,
+        file_paths=file_paths,
+        display_paths=display_paths,
+        negative_dict=negative_dict,
+        note_dict=note_dict,
+        lora_dict=lora_dict,
+        settings_dict=settings_dict,
+        conflict_keys=conflict_keys,
+        folder_source="fingerprint-dirs",
+    )
+    logger.info(
+        "Incremental library reload reread %d file(s) under %s",
+        len(reread),
+        root,
+    )
+    return True
+
+
+def reload(root: Optional[Path] = None, *, force: bool = False) -> None:
+    """Load wildcards into memory, preferring fingerprint cache when possible.
+
+    ``force=True`` always rescans every card body (nuclear rebuild).
+    Otherwise: exact cache hit, then incremental reread of changed files, then
+    full scan if no usable cache exists.
+    """
+    root = Path(root) if root is not None else get_wildcards_path()
+
+    if not root.is_dir():
+        logger.warning("Wildcards root does not exist: %s", root)
+        _publish_library_indexes(
+            root,
+            file_dict={},
+            file_paths={},
+            display_paths={},
+            negative_dict={},
+            note_dict={},
+            lora_dict={},
+            settings_dict={},
+            folder_dict={},
+            folder_display_paths={},
+            conflict_keys=(),
+        )
+        index_cache.invalidate(root)
+        return
+
+    if force:
+        _reload_full_scan(root)
+        return
+
+    # One snapshot read + one fingerprint walk shared by hit and incremental.
+    cached = index_cache.read_snapshot(root)
+    current_fingerprint = index_cache.collect_disk_fingerprint(root)
+    hit = index_cache.try_load_valid_snapshot(
+        root,
+        snapshot=cached,
+        current_fingerprint=current_fingerprint,
+    )
+    if hit is not None and _apply_index_cache_snapshot(root, hit):
+        return
+
+    if (
+        cached is not None
+        and isinstance(cached.get("entries"), dict)
+        and cached["entries"]
+        and _reload_incremental_from_cache(root, cached, current_fingerprint)
+    ):
+        return
+
+    _reload_full_scan(root)
 
 
 def ensure_loaded() -> None:

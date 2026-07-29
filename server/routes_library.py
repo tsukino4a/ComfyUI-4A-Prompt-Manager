@@ -41,7 +41,8 @@ MAX_PREVIEW_IMAGE_BYTES = 32 * 1024 * 1024
 
 async def handle_reload(_request: web.Request) -> web.Response:
     try:
-        wc.reload()
+        # Fingerprint check first; only reread card bodies that changed.
+        await asyncio.to_thread(wc.reload, force=False)
         return web.json_response({"success": True, **wc.list_sources_and_tree()})
     except Exception as exc:
         logger.exception("reload failed")
