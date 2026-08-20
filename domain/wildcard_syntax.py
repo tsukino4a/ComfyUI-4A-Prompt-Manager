@@ -327,10 +327,6 @@ def _parse_choice(
         weight, value_start = _weight_and_value_start(
             text, source_positions, start, end
         )
-        if not text[value_start:end].strip():
-            raise WildcardSyntaxError(
-                f"空选择项，位置 {_position(source_positions, start)}"
-            )
         options.append(
             _WeightedOption(
                 weight,
