@@ -272,15 +272,6 @@ def reference_keys(text: str) -> tuple[str, ...]:
     )
 
 
-def sequential_reference_keys(text: str) -> tuple[str, ...]:
-    """All plain ``__key__`` references that participate in sequential leaf space."""
-    if not isinstance(text, str) or not text.strip():
-        return ()
-    return tuple(
-        node.key for node in parse(text) if isinstance(node, _Reference)
-    )
-
-
 def sequential_leaf_count(
     text: str,
     resolver: WildcardResolver,

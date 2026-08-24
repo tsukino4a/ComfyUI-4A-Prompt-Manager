@@ -823,10 +823,3 @@ export function openPromptLibraryModal({
     })();
   });
 }
-
-const pm4aNaiIntegration = globalThis.__pm4aNaiIntegration
-  || globalThis.__pm4aIntegration
-  || {};
-pm4aNaiIntegration.openPromptLibraryModal = openPromptLibraryModal;
-globalThis.__pm4aNaiIntegration = pm4aNaiIntegration;
-globalThis.__pm4aIntegration = pm4aNaiIntegration;

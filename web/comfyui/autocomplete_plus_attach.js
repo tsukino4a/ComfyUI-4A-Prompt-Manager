@@ -112,10 +112,3 @@ export async function attachAutocompletePlus(element, info = {}) {
   attachedElements.add(element);
   return true;
 }
-
-const pm4aNaiIntegration = globalThis.__pm4aNaiIntegration
-  || globalThis.__pm4aIntegration
-  || {};
-pm4aNaiIntegration.attachAutocompletePlus = attachAutocompletePlus;
-globalThis.__pm4aNaiIntegration = pm4aNaiIntegration;
-globalThis.__pm4aIntegration = pm4aNaiIntegration;

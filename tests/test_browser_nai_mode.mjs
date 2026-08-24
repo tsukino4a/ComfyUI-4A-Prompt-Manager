@@ -196,13 +196,6 @@ test("app loads optional upstream choices lazily after NAI becomes relevant", ()
   assert.match(app, /if \(next === "nai"\) void ensureNaiSettingsOptions\(\)/);
 });
 
-test("4APM exposes a narrow frontend integration API for external NAI nodes", () => {
-  assert.match(promptLibraryModal, /__pm4aNaiIntegration/);
-  assert.match(promptLibraryModal, /\.openPromptLibraryModal\s*=\s*openPromptLibraryModal/);
-  assert.match(autocompleteAttach, /__pm4aNaiIntegration/);
-  assert.match(autocompleteAttach, /\.attachAutocompletePlus\s*=\s*attachAutocompletePlus/);
-});
-
 test("Comfy send path remains the legacy key route while converted actions use text", () => {
   assert.match(app, /async function sendByKey\(/);
   assert.match(app, /state\.browserMode === "nai"/);

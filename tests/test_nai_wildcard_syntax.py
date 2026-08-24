@@ -12,7 +12,6 @@ from domain.nai_wildcard_syntax import (
     parse,
     reference_keys,
     sequential_leaf_count,
-    sequential_reference_keys,
 )
 from domain.wildcard_syntax import (
     ExpansionContext,
@@ -114,12 +113,6 @@ class NaiLiteralPreservationTests(unittest.TestCase):
 class NaiReferenceParsingTests(unittest.TestCase):
     def test_reference_keys_in_order(self) -> None:
         self.assertEqual(reference_keys("__a__ and __b__"), ("a", "b"))
-
-    def test_sequential_reference_keys_includes_brace_and_bracket_refs(self) -> None:
-        self.assertEqual(
-            sequential_reference_keys("__a__ {__b__} [__c__] 3#__d__"),
-            ("a", "b", "c"),
-        )
 
     def test_malformed_n_hash_unclosed_stays_literal_on_parse(self) -> None:
         nodes = parse("3#__open")
