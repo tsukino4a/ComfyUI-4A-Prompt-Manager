@@ -1,5 +1,5 @@
 import { app } from "../../scripts/app.js";
-import { configureComfyI18n, t } from "./i18n.js?v=1";
+import { configureComfyI18n, t } from "./i18n.js";
 import { useKSamplerMinimumWidth } from "./sampler_node_size.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 

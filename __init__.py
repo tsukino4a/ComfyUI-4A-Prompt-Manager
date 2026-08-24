@@ -45,14 +45,14 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    PromptScheduler4A.NAME: "Prompt Scheduler (4A Prompt Manager)",
-    PromptDisplay4A.NAME: "Meta Loader (4A Prompt Manager)",
-    MetaApply4A.NAME: "Meta Apply (4A Prompt Manager)",
-    InputParameters4A.NAME: "Input Parameters (4A Prompt Manager)",
-    DoubleSampleParameters4A.NAME: "Double Sample Parameters (4A Prompt Manager)",
-    BypassSwitch4A.NAME: "Bypass Switch (4A Prompt Manager)",
-    ImageSaver4A.NAME: "Image Saver (4A Prompt Manager)",
-    PromptManagerBrowser4A.NAME: "Prompt Manager Browser (4A Prompt Manager)",
+    PromptScheduler4A.NAME: "Prompt Scheduler",
+    PromptDisplay4A.NAME: "Meta Loader",
+    MetaApply4A.NAME: "Meta Apply",
+    InputParameters4A.NAME: "Input Parameters",
+    DoubleSampleParameters4A.NAME: "Double Sample Parameters",
+    BypassSwitch4A.NAME: "Bypass Switch",
+    ImageSaver4A.NAME: "Image Saver",
+    PromptManagerBrowser4A.NAME: "Prompt Manager Browser",
 }
 
 WEB_DIRECTORY = "./web/comfyui"

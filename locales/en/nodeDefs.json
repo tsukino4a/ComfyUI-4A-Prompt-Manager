@@ -1,6 +1,6 @@
 {
   "Prompt Scheduler (4A Prompt Manager)": {
-    "display_name": "Prompt Scheduler (4A Prompt Manager)",
+    "display_name": "Prompt Scheduler",
     "description": "Expands folder wildcard prompts sequentially or randomly for each batch item, then outputs positive, negative, and structured prompt data.",
     "inputs": {
       "config_json": {"name": "Scheduler Config JSON", "tooltip": "Configuration JSON for the frontend prompt columns and negative prompt."},
@@ -15,7 +15,7 @@
     }
   },
   "Prompt Display (4A Prompt Manager)": {
-    "display_name": "Meta Loader (4A Prompt Manager)",
+    "display_name": "Meta Loader",
     "description": "Show prompt/parameter/LoRA metadata from a dropped image, or from a connected prompt_json for the current execution only (not a live stream).",
     "inputs": {
       "imported_json": {"name": "Imported JSON", "tooltip": "Prompt metadata JSON imported from an image or external source."},
@@ -23,7 +23,7 @@
     }
   },
   "Meta Apply (4A Prompt Manager)": {
-    "display_name": "Meta Apply (4A Prompt Manager)",
+    "display_name": "Meta Apply",
     "description": "Drop or pick an image to apply detected metadata. Use the top toggles to enable model, LoRA, inference parameters, and prompt independently.",
     "inputs": {
       "自动应用模型": {"name": "Auto-apply Model", "tooltip": "When enabled, apply Checkpoint/UNet."},
@@ -34,7 +34,7 @@
     }
   },
   "Input Parameters (4A Prompt Manager)": {
-    "display_name": "Input Parameters (4A Prompt Manager)",
+    "display_name": "Input Parameters",
     "description": "Outputs sampler parameters, independent width and height values, and portable JSON metadata. The ratio preset only provides one-shot frontend sizing.",
     "inputs": {
       "seed": {"name": "Seed", "tooltip": "Random seed used for generation."},
@@ -82,7 +82,7 @@
     }
   },
   "Bypass Switch (4A Prompt Manager)": {
-    "display_name": "Bypass Switch (4A Prompt Manager)",
+    "display_name": "Bypass Switch",
     "description": "Wire nodes you want to control into the inputs. When enabled is false those nodes are set to Bypass; when true they return to Always. Useful for toggling a second-sample subgraph.",
     "inputs": {
       "enabled": {"name": "Enabled", "tooltip": "When on, connected nodes run normally; when off, they are bypassed."}
@@ -92,7 +92,7 @@
     }
   },
   "Double Sample Parameters (4A Prompt Manager)": {
-    "display_name": "Double Sample Parameters (4A Prompt Manager)",
+    "display_name": "Double Sample Parameters",
     "description": "Outputs second-pass sampler parameters and self-identifying JSON for Image Saver's parameters_json input.",
     "inputs": {
       "seed": {"name": "Seed", "tooltip": "Random seed used for the second sampling pass."},
@@ -113,7 +113,7 @@
     }
   },
   "Image Saver (4A Prompt Manager)": {
-    "display_name": "Image Saver (4A Prompt Manager)",
+    "display_name": "Image Saver",
     "description": "Independent Image Saver Simple-style output with exact generation parameters and automatic model, LoRA, and embedding hashes.",
     "inputs": {
       "images": {"name": "Images", "tooltip": "Image(s) to save."},
@@ -140,7 +140,7 @@
     }
   },
   "Prompt Manager Browser (4A Prompt Manager)": {
-    "display_name": "Prompt Manager Browser (4A Prompt Manager)",
+    "display_name": "Prompt Manager Browser",
     "description": "Displays the existing 4A Prompt Manager interface inside the ComfyUI canvas. This UI-only node does not participate in execution.",
     "inputs": {}
   }

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 try:
-    from ..domain import wildcard_syntax
+    from ..domain import nai_to_anima, nai_wildcard_syntax, wildcard_syntax
+    from ..storage.prompt_documents import normalize_nai_payload
 except ImportError:  # standalone preview
+    from domain import nai_to_anima, nai_wildcard_syntax  # type: ignore
     from domain import wildcard_syntax  # type: ignore
+    from storage.prompt_documents import normalize_nai_payload  # type: ignore
 
 
 _ROOT_WILDCARD_KEY = "*"
@@ -35,6 +38,18 @@ def _lora_text_of(value: Any) -> str:
         text = value.get("text", "")
         return text.strip() if isinstance(text, str) else ""
     return ""
+
+
+def _comfy_card_text(primary: str, nai_text: Any) -> str:
+    """Prefer stored Comfy text, otherwise derive a non-persistent NAI fallback."""
+    if isinstance(primary, str) and primary.strip():
+        return primary
+    if not isinstance(nai_text, str) or not nai_text.strip():
+        return ""
+    try:
+        return nai_to_anima.convert_prompt_tolerant(nai_text).text
+    except (TypeError, ValueError):
+        return nai_text
 
 
 def _settings_of(value: Any) -> dict[str, Any]:
@@ -73,6 +88,7 @@ class LibraryWildcardResolver:
     folder_candidate_dict: Mapping[
         str, tuple[wildcard_syntax.WildcardCandidate, ...]
     ]
+    nai_dict: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_indexes(
@@ -83,6 +99,7 @@ class LibraryWildcardResolver:
         display_paths: Mapping[str, str],
         lora_dict: Mapping[str, Any] | None = None,
         settings_dict: Mapping[str, Any] | None = None,
+        nai_dict: Mapping[str, Any] | None = None,
     ) -> "LibraryWildcardResolver":
         files = {
             key: tuple(values)
@@ -109,6 +126,12 @@ class LibraryWildcardResolver:
             )
             for key in files
         }
+        nai = {
+            key: normalize_nai_payload(
+                nai_dict.get(key, {}) if nai_dict is not None else {}
+            )
+            for key in files
+        }
         candidate_keys = list(files)
         candidate_keys.sort(
             key=lambda key: (_natural_display_key(displays.get(key, key)), key)
@@ -128,8 +151,14 @@ class LibraryWildcardResolver:
             key: tuple(
                 wildcard_syntax.WildcardCandidate(
                     key=key,
-                    content=content,
-                    negative=negatives.get(key, ""),
+                    content=_comfy_card_text(
+                        content,
+                        nai.get(key, {}).get("content"),
+                    ),
+                    negative=_comfy_card_text(
+                        negatives.get(key, ""),
+                        nai.get(key, {}).get("negative"),
+                    ),
                     lora_text=_lora_text_of(loras.get(key)),
                     models=_settings_of(settings.get(key)).get("models") or (),
                     parameters=dict(
@@ -141,6 +170,7 @@ class LibraryWildcardResolver:
                         )
                         or {}
                     ),
+                    nai=nai_wildcard_syntax.copy_nai_payload(nai.get(key)),
                 )
                 for content in options
             )
@@ -161,6 +191,7 @@ class LibraryWildcardResolver:
             display_paths=MappingProxyType(displays),
             lora_dict=MappingProxyType(loras),
             settings_dict=MappingProxyType(settings),
+            nai_dict=MappingProxyType(nai),
             candidate_dict=MappingProxyType(candidates),
             folder_candidate_dict=MappingProxyType(folder_candidates),
         )

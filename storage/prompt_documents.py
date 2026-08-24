@@ -59,6 +59,21 @@ def empty_double_sample_payload() -> dict[str, Any]:
     return {}
 
 
+NAI_PARAMETER_KEYS: tuple[str, ...] = (
+    "steps",
+    "cfg",
+    "sampler",
+    "scheduler",
+    "cfg_rescale",
+    "width",
+    "height",
+)
+
+
+def empty_nai_payload() -> dict[str, Any]:
+    return {}
+
+
 def empty_card_settings() -> dict[str, Any]:
     return {
         "models": empty_models_payload(),
@@ -80,6 +95,7 @@ class PromptDocument:
     double_sample_parameters: dict[str, Any] = field(
         default_factory=empty_double_sample_payload
     )
+    nai: dict[str, Any] = field(default_factory=empty_nai_payload)
 
 
 def _normalize_txt_text(text: str) -> Optional[str]:
@@ -273,10 +289,86 @@ def normalize_models_payload(
 def _normalize_number(value: Any, *, integer: bool, label: str, key: str) -> int | float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(tr("{key} 必须是数字{label}", key=key, label=label))
-    number = float(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            tr("{key} 必须是有效数字{label}", key=key, label=label)
+        ) from exc
     if not isfinite(number):
         raise ValueError(tr("{key} 必须是有效数字{label}", key=key, label=label))
     return int(number) if integer else number
+
+
+def _clamp_unit_interval(value: int | float) -> float:
+    number = float(value)
+    if number < 0:
+        return 0.0
+    if number > 1:
+        return 1.0
+    return number
+
+
+def _normalize_nai_prompt_text(value: Any, *, key: str, label: str) -> str:
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(tr("{key} 必须是字符串{label}", key=key, label=label))
+    return _normalize_txt_text(value) or ""
+
+
+def _field_present(value: Any) -> bool:
+    return value is not None and value != ""
+
+
+def card_has_positive_prompt(content: Any, nai: Any) -> bool:
+    """True when Comfy `content` or NAI-native `nai.content` is non-empty."""
+    if isinstance(content, str) and _normalize_txt_text(content):
+        return True
+    if isinstance(nai, dict):
+        nai_content = nai.get("content")
+        if isinstance(nai_content, str) and _normalize_txt_text(nai_content):
+            return True
+    return False
+
+
+def _normalize_nai_characters(value: Any, *, label: str) -> list[dict[str, Any]]:
+    """Normalize ordered NAI characters; omit empty items and unknown keys."""
+    if value is None or value == "" or value == []:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(tr("nai.characters 必须是数组{label}", label=label))
+    characters: list[dict[str, Any]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise ValueError(tr("nai.characters 项必须是对象{label}", label=label))
+        item: dict[str, Any] = {}
+        positive = _normalize_nai_prompt_text(
+            entry.get("positive"), key="nai.characters.positive", label=label
+        )
+        if positive:
+            item["positive"] = positive
+        negative = _normalize_nai_prompt_text(
+            entry.get("negative"), key="nai.characters.negative", label=label
+        )
+        if negative:
+            item["negative"] = negative
+        has_x = _field_present(entry.get("x")) if "x" in entry else False
+        has_y = _field_present(entry.get("y")) if "y" in entry else False
+        if has_x != has_y:
+            raise ValueError(
+                tr("nai.characters 的 x 与 y 必须成对出现{label}", label=label)
+            )
+        if has_x:
+            item["x"] = _clamp_unit_interval(
+                _normalize_number(entry["x"], integer=False, label=label, key="x")
+            )
+            item["y"] = _clamp_unit_interval(
+                _normalize_number(entry["y"], integer=False, label=label, key="y")
+            )
+        if item:
+            characters.append(item)
+    return characters
 
 
 def normalize_parameters_payload(
@@ -317,6 +409,57 @@ def normalize_double_sample_payload(
         filename=filename,
         allowed_keys=DOUBLE_SAMPLE_KEYS,
     )
+
+
+def normalize_nai_payload(
+    value: Any,
+    *,
+    filename: str = "",
+) -> dict[str, Any]:
+    """Normalize sparse NovelAI card settings; omit empty keys and blocks."""
+    label = f"：{filename}" if filename else ""
+    if value is None or value == "" or value == {}:
+        return empty_nai_payload()
+    if not isinstance(value, dict):
+        raise ValueError(tr("nai 必须是对象{label}", label=label))
+    nai: dict[str, Any] = {}
+    content = _normalize_nai_prompt_text(
+        value.get("content"), key="nai.content", label=label
+    )
+    if content:
+        nai["content"] = content
+    negative = _normalize_nai_prompt_text(
+        value.get("negative"), key="nai.negative", label=label
+    )
+    if negative:
+        nai["negative"] = negative
+    characters = _normalize_nai_characters(value.get("characters"), label=label)
+    if characters:
+        nai["characters"] = characters
+    parameters_raw = value.get("parameters")
+    if parameters_raw is not None and parameters_raw != "" and parameters_raw != {}:
+        if not isinstance(parameters_raw, dict):
+            raise ValueError(tr("nai.parameters 必须是对象{label}", label=label))
+        allowed = set(NAI_PARAMETER_KEYS)
+        parameters: dict[str, Any] = {}
+        for key, raw in parameters_raw.items():
+            if key not in allowed or raw is None or raw == "":
+                continue
+            if key in {"steps", "width", "height"}:
+                parameters[key] = _normalize_number(
+                    raw, integer=True, label=label, key=key
+                )
+            elif key in {"cfg", "cfg_rescale"}:
+                parameters[key] = _normalize_number(
+                    raw, integer=False, label=label, key=key
+                )
+            elif key in {"sampler", "scheduler"}:
+                text = str(raw).strip()
+                if text:
+                    parameters[key] = text
+        if parameters:
+            nai["parameters"] = parameters
+    return nai
 
 
 def merge_models(*groups: Any) -> list[dict[str, Any]]:
@@ -375,6 +518,10 @@ def card_settings_from_document(document: "PromptDocument") -> dict[str, Any]:
     }
 
 
+def nai_from_document(document: "PromptDocument") -> dict[str, Any]:
+    return normalize_nai_payload(document.nai)
+
+
 def settings_nonempty(settings: Optional[dict[str, Any]]) -> bool:
     if not isinstance(settings, dict):
         return False
@@ -399,6 +546,7 @@ def read_prompt_document(path: Path) -> PromptDocument:
             models=tuple(document["models"]),
             parameters=dict(document["parameters"]),
             double_sample_parameters=dict(document["double_sample_parameters"]),
+            nai=dict(document["nai"]),
         )
     if path.suffix.casefold() == ".txt":
         raw_content = read_txt_text(path)
@@ -446,9 +594,15 @@ def _read_json_prompt(path: Path) -> dict[str, Any]:
         raise ValueError(tr("negative 必须是字符串：{filename}", filename=path.name))
     if not isinstance(note, str):
         raise ValueError(tr("note 必须是字符串：{filename}", filename=path.name))
-    normalized_content = _normalize_txt_text(content)
-    if not normalized_content:
-        raise ValueError(tr("content 不能为空：{filename}", filename=path.name))
+    normalized_content = _normalize_txt_text(content) or ""
+    normalized_nai = normalize_nai_payload(raw.get("nai"), filename=path.name)
+    if not card_has_positive_prompt(normalized_content, normalized_nai):
+        raise ValueError(
+            tr(
+                "content 或 nai.content 至少一个不能为空{label}",
+                label=f"：{path.name}",
+            )
+        )
     return {
         "content": normalized_content,
         "negative": _normalize_optional_prompt(negative),
@@ -465,6 +619,7 @@ def _read_json_prompt(path: Path) -> dict[str, Any]:
         "double_sample_parameters": normalize_double_sample_payload(
             raw.get("double_sample_parameters"), filename=path.name
         ),
+        "nai": normalized_nai,
     }
 
 
@@ -478,11 +633,12 @@ def _write_json_prompt(
     models: Optional[list[dict[str, Any]]] = None,
     parameters: Optional[dict[str, Any]] = None,
     double_sample_parameters: Optional[dict[str, Any]] = None,
+    nai: Optional[dict[str, Any]] = None,
 ) -> None:
     payload: dict[str, Any] = {
-        "content": content,
-        "negative": negative,
-        "note": note,
+        "content": content if isinstance(content, str) else "",
+        "negative": negative if isinstance(negative, str) else "",
+        "note": note if isinstance(note, str) else "",
     }
     normalized_lora = normalize_lora_payload(
         lora,
@@ -502,6 +658,16 @@ def _write_json_prompt(
     )
     if normalized_double:
         payload["double_sample_parameters"] = normalized_double
+    normalized_nai = normalize_nai_payload(nai, filename=path.name)
+    if not card_has_positive_prompt(payload["content"], normalized_nai):
+        raise ValueError(
+            tr(
+                "content 或 nai.content 至少一个不能为空{label}",
+                label=f"：{path.name}",
+            )
+        )
+    if normalized_nai:
+        payload["nai"] = normalized_nai
     temporary = path.with_name(f".{path.stem}.pm4a-save-{uuid.uuid4().hex}.tmp")
     try:
         with temporary.open("w", encoding="utf-8", newline="\n") as handle:

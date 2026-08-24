@@ -5,7 +5,7 @@
  * - older: ComfyButtonGroup inserted before settingsGroup
  */
 import { app } from "../../scripts/app.js";
-import { configureComfyI18n, getComfyLocale, t } from "./i18n.js?v=1";
+import { configureComfyI18n, getComfyLocale, t } from "./i18n.js";
 
 configureComfyI18n(app);
 

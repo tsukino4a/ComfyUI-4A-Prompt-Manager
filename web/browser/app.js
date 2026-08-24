@@ -1,9 +1,14 @@
-import { readImagePromptDocument, stripLoraTags } from "./image_prompt_metadata.js?v=17";
+import { readImagePromptDocument, stripLoraTags } from "./image_prompt_metadata.js";
+import {
+  autosizePromptTextarea,
+  CHARACTER_PROMPT_MIN_HEIGHT,
+  createNaiCharactersEditor,
+} from "./nai_characters.js";
 import {
   hasSupportedImageTransfer,
   imageFileFromTransfer,
   looksLikeImageFile,
-} from "./image_drop.js?v=3";
+} from "./image_drop.js";
 import {
   applyDocumentTranslations,
   buildBrowserLocaleReloadUrl,
@@ -13,7 +18,7 @@ import {
   setLocale,
   t,
   trySaveBrowserLocale,
-} from "./i18n.js?v=19";
+} from "./i18n.js";
 import {
   detectLoraManager,
   emptyLoraPayload,
@@ -27,7 +32,7 @@ import {
   resolveLoraManagerTitle,
   searchLoraManager,
   withLoraStrength,
-} from "./lora_library.js?v=3";
+} from "./lora_library.js";
 import {
   RATIO_PRESETS,
   cloneCardSettings,
@@ -44,7 +49,23 @@ import {
   settingsNonempty,
   sparseDoubleSampleFromForm,
   sparseParametersFromForm,
-} from "./card_settings.js?v=4";
+} from "./card_settings.js";
+import {
+  browserModeVisibility,
+  buildNaiSlotRequest,
+  convertTextsForAction,
+  fillNaiForm,
+  flattenNovelAIForComfyMode,
+  naiSavePatch,
+  normalizeBrowserMode,
+  normalizeNaiSettings,
+  promptFieldProvenance,
+  promptFieldSourceDisplay,
+  readNaiForm,
+  readObjectInfoChoices,
+  resolveEntryTextsForMode,
+  setChoiceOptions,
+} from "./nai_settings.js";
 
 setLocale(readBrowserLocale());
 applyDocumentTranslations();
@@ -75,6 +96,7 @@ const STORAGE_KEYS = {
   recursive: "pm4a_browser_recursive",
   sidebarOpen: "pm4a_browser_sidebar_open",
   viewMode: "pm4a_browser_view_mode",
+  browserMode: "pm4a_browser_mode",
   sortMode: "pm4a_browser_sort_mode",
   sendMode: "pm4a_browser_send_mode",
   expanded: "pm4a_browser_expanded",
@@ -219,6 +241,7 @@ const state = {
   recursive: readStoredBoolean(STORAGE_KEYS.recursive, true),
   sidebarOpen: readStoredBoolean(STORAGE_KEYS.sidebarOpen, true),
   viewMode: readStoredString(STORAGE_KEYS.viewMode, "list") === "cards" ? "cards" : "list",
+  browserMode: normalizeBrowserMode(readStoredString(STORAGE_KEYS.browserMode, "comfy")),
   favorites: new Set(),
   favoriteRequests: new Set(),
   favoritesOnly: false,
@@ -246,13 +269,18 @@ const state = {
   selected: null,
   entryCache: new Map(),
   editingTitle: false,
-  editingContent: false,
-  editingNegative: false,
-  editingNote: false,
+  detailTextDrafts: null,
+  detailTextMode: "comfy",
+  detailTextRequestId: 0,
   detailLoraEntries: [],
   detailModels: [],
+  naiOptions: { sampler: [], scheduler: [] },
+  naiOptionsLoaded: false,
+  naiOptionsPromise: null,
   createModels: [],
   createLoraEntries: [],
+  detailNaiCharactersEditor: null,
+  createNaiCharactersEditor: null,
   loraManagerAvailable: false,
   loraPickerTimer: 0,
   loraPickerRequestId: 0,
@@ -333,10 +361,12 @@ async function api(path, options = {}) {
   if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
-  const response = await fetch(path, {
+  const fetchOptions = {
     ...options,
     headers,
-  });
+  };
+  if (path.startsWith("/pm4a/api/")) fetchOptions.cache = "no-store";
+  const response = await fetch(path, fetchOptions);
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.success === false) {
     const error = new Error(formatApiErrorMessage(data.error, response.status));
@@ -510,18 +540,25 @@ function clearCreateImage() {
 function openAddPromptModal() {
   const form = $("add-prompt-form");
   form.reset();
+  initializeNaiCharacterEditors();
   clearCreateImage();
   state.createModels = [];
   state.createLoraEntries = [];
   fillParametersForm($("add-parameters-form"), {});
   fillDoubleSampleForm($("add-double-form"), {});
+  fillNaiForm($("add-nai-settings-form"), {});
+  state.createNaiCharactersEditor?.setValue([]);
+  state.createNaiCharactersEditor?.setAspect(1);
+  updateNaiCharacterActions();
   renderCreateModelsList();
   renderCreateLoraList();
   populateCreateFolderOptions(state.prefix);
   setModalStatus("add-prompt-status");
+  applyBrowserMode();
   $("add-prompt-modal").hidden = false;
   document.body.classList.add("modal-open");
-  void ensureCardSettingsOptions();
+  if (state.browserMode === "nai") void ensureNaiSettingsOptions();
+  else void ensureCardSettingsOptions();
   requestAnimationFrame(() => $("add-prompt-name").focus());
 }
 
@@ -575,6 +612,9 @@ async function setCreateImage(file) {
     if (dims && preview.naturalWidth > 0) {
       dims.hidden = false;
       dims.textContent = `${preview.naturalWidth} × ${preview.naturalHeight} px`;
+      state.createNaiCharactersEditor?.setAspect(
+        preview.naturalWidth / Math.max(1, preview.naturalHeight),
+      );
     }
   };
   preview.src = state.createImageUrl;
@@ -593,12 +633,28 @@ async function setCreateImage(file) {
       setCreateImageStatus(t("图片已作为例图；没有读取到可用的提示词数据"));
       return;
     }
-    const positive = promptDocumentPositive(documentData);
-    const negative = typeof documentData.negative === "string"
+    const nativeNai = normalizeNaiSettings(documentData.nai || {});
+    const basePositive = promptDocumentPositive(documentData);
+    const baseNegative = typeof documentData.negative === "string"
       ? documentData.negative.trim()
       : "";
+    const comfyTexts = flattenNovelAIForComfyMode(documentData, {
+      positive: basePositive,
+      negative: baseNegative,
+    });
+    const positive = state.browserMode === "nai"
+      ? nativeNai.content || basePositive
+      : comfyTexts.positive;
+    const negative = state.browserMode === "nai"
+      ? nativeNai.negative || baseNegative
+      : comfyTexts.negative;
     if (positive) $("add-prompt-content").value = positive;
     if (negative) $("add-prompt-negative").value = negative;
+    if (state.browserMode === "nai") {
+      state.createNaiCharactersEditor?.setValue(
+        nativeNai.characters || documentData.characters || [],
+      );
+    }
     const sourceLabel = String(documentData.source_label || "");
     const source = (sourceLabel === "通用" ? t("通用") : sourceLabel)
       || documentData.source_type
@@ -618,6 +674,7 @@ async function saveNewPrompt(event) {
   const content = $("add-prompt-content").value;
   const negative = $("add-prompt-negative").value;
   const note = $("add-prompt-note").value;
+  const naiMode = state.browserMode === "nai";
   if (!name) {
     setModalStatus("add-prompt-status", t("请填写标题"), "error");
     $("add-prompt-name").focus();
@@ -636,16 +693,18 @@ async function saveNewPrompt(event) {
   let entry = null;
   let imageError = "";
   try {
-    const settings = readCreateSettingsDraft();
-    const lora = entriesToLoraPayload(state.createLoraEntries);
+    const settings = naiMode ? emptyCardSettings() : readCreateSettingsDraft();
+    const lora = naiMode ? emptyLoraPayload() : entriesToLoraPayload(state.createLoraEntries);
+    const nai = naiMode ? readCreateNaiDraft() : {};
     const data = await api("/pm4a/api/entry/create", {
       method: "POST",
       body: JSON.stringify({
         folder,
         name,
-        content,
-        negative,
+        content: naiMode ? "" : content,
+        negative: naiMode ? "" : negative,
         note,
+        ...(Object.keys(nai).length ? { nai } : {}),
         ...(lora?.text || lora?.hashes?.length ? { lora } : {}),
         ...(settings.models.length ? { models: settings.models } : {}),
         ...(Object.keys(settings.parameters).length
@@ -2204,6 +2263,65 @@ function setViewMode(mode) {
   applyViewMode(true);
 }
 
+function applyBrowserMode() {
+  const isTxt = state.selected?.format === "txt_wildcard";
+  const visibility = browserModeVisibility(state.browserMode, isTxt);
+  const comfyButton = $("btn-browser-mode-comfy");
+  const naiButton = $("btn-browser-mode-nai");
+  const naiMode = state.browserMode === "nai";
+  comfyButton.classList.toggle("active", !naiMode);
+  comfyButton.setAttribute("aria-pressed", String(!naiMode));
+  naiButton.classList.toggle("active", naiMode);
+  naiButton.setAttribute("aria-pressed", String(naiMode));
+  $("detail-lora-panel").hidden = !visibility.comfyLora;
+  $("detail-settings-panel").hidden = !visibility.comfySettings;
+  $("detail-nai-settings-panel").hidden = !visibility.naiSettings;
+  document.querySelectorAll("[data-comfy-apply]").forEach((button) => {
+    button.hidden = !visibility.comfyApply;
+  });
+  document.querySelectorAll("[data-nai-apply]").forEach((button) => {
+    button.hidden = !visibility.naiSettings;
+  });
+  const contentLabel = naiMode && !isTxt
+    ? t("NAI 提示词内容")
+    : isTxt
+      ? t("Wildcard 选项预览")
+      : t("提示词内容");
+  const negativeLabel = naiMode && !isTxt
+    ? t("NAI 负面提示词")
+    : t("负面提示词");
+  $("detail-content-label").textContent = contentLabel;
+  $("detail-negative-label").textContent = negativeLabel;
+  $("detail-content-editor").setAttribute("aria-label", contentLabel);
+  $("detail-negative-editor").setAttribute("aria-label", negativeLabel);
+  updatePromptSourceBadges();
+  const comfyCreate = !naiMode;
+  $("add-comfy-lora-panel").hidden = !comfyCreate;
+  $("add-comfy-settings-panel").hidden = !comfyCreate;
+  $("add-nai-settings-panel").hidden = comfyCreate;
+  $("add-prompt-generate").hidden = naiMode;
+  $("detail-generate-image").hidden = naiMode;
+  $("add-prompt-content-label").textContent = naiMode
+    ? t("NAI 正面提示词")
+    : t("正面提示词");
+  $("add-prompt-negative-label").textContent = naiMode
+    ? t("NAI 负面提示词")
+    : t("负面提示词");
+}
+
+function setBrowserMode(mode) {
+  const next = normalizeBrowserMode(mode);
+  if (state.browserMode === next) return;
+  captureDetailTextDraft();
+  state.browserMode = next;
+  storeValue(STORAGE_KEYS.browserMode, next);
+  applyBrowserMode();
+  if (next === "nai") void ensureNaiSettingsOptions();
+  void resolveDetailTextDraft(next);
+  updateDetailEditControls();
+  scheduleDetailPromptResize();
+}
+
 function installInspectorSendIcons() {
   document.querySelectorAll("#detail-inspector .inspector-send-button[data-slot]").forEach((button) => {
     const slot = button.dataset.slot;
@@ -2212,6 +2330,11 @@ function installInspectorSendIcons() {
   });
   document.querySelectorAll("#detail-inspector .inspector-send-button[data-apply]").forEach((button) => {
     const kind = button.dataset.apply;
+    if (!APPLY_ICONS[kind]) return;
+    button.innerHTML = `${APPLY_ICONS[kind]}<span>${APPLY_BUTTON_LABELS[kind]}</span>`;
+  });
+  document.querySelectorAll("#detail-inspector .inspector-send-button[data-nai-apply]").forEach((button) => {
+    const kind = button.dataset.naiApply;
     if (!APPLY_ICONS[kind]) return;
     button.innerHTML = `${APPLY_ICONS[kind]}<span>${APPLY_BUTTON_LABELS[kind]}</span>`;
   });
@@ -2253,10 +2376,13 @@ function hasDirtyDetailEdits() {
   if (!state.selected) return false;
   const capabilities = state.selected.capabilities || {};
   const titleChanged = $("detail-title-input").value.trim() !== state.selected.name;
+  const comfyDraft = state.detailTextDrafts?.comfy;
   const contentChanged = capabilities.content_edit !== false
-    && $("detail-content-editor").value !== (state.selected.content || "");
+    && Boolean(comfyDraft?.contentDirty)
+    && comfyDraft.content !== (state.selected.content || "");
   const negativeChanged = capabilities.negative !== false
-    && $("detail-negative-editor").value !== (state.selected.negative || "");
+    && Boolean(comfyDraft?.negativeDirty)
+    && comfyDraft.negative !== (state.selected.negative || "");
   const noteChanged = capabilities.note !== false
     && $("detail-note-editor").value !== (state.selected.note || "");
   const loraChanged = capabilities.lora !== false
@@ -2270,12 +2396,17 @@ function hasDirtyDetailEdits() {
       parameters: state.selected.parameters || {},
       double_sample_parameters: state.selected.double_sample_parameters || {},
     });
+  const naiChanged = Object.prototype.hasOwnProperty.call(
+    naiSavePatch(state.selected, readDetailNaiDraft()),
+    "nai",
+  );
   return titleChanged
     || contentChanged
     || negativeChanged
     || noteChanged
     || loraChanged
     || settingsChanged
+    || naiChanged
     || Boolean(state.imageDraft);
 }
 
@@ -2287,25 +2418,27 @@ function updateDetailEditControls() {
   const noteEnabled = available && capabilities.note !== false;
   const loraEnabled = available && capabilities.lora !== false;
   const titleButton = $("detail-edit-title");
-  const contentButton = $("detail-edit-content");
-  const negativeButton = $("detail-edit-negative");
-  const noteButton = $("detail-edit-note");
   const addLoraButton = $("detail-add-lora");
   const imageButton = $("detail-edit-image");
   const generateButton = $("detail-generate-image");
   const titleModified = Boolean(state.selected)
     && $("detail-title-input").value.trim() !== state.selected.name;
   const contentModified = Boolean(state.selected)
-    && $("detail-content-editor").value !== (state.selected.content || "");
+    && Boolean(state.detailTextDrafts?.[state.browserMode]?.contentDirty);
   const negativeModified = Boolean(state.selected)
-    && $("detail-negative-editor").value !== (state.selected.negative || "");
+    && Boolean(state.detailTextDrafts?.[state.browserMode]?.negativeDirty);
   const noteModified = Boolean(state.selected)
     && $("detail-note-editor").value !== (state.selected.note || "");
+  const naiAvailable = available && state.selected?.format !== "txt_wildcard";
+  $("detail-content-editor").readOnly = !contentEditable;
+  $("detail-negative-editor").readOnly = !negativeEnabled;
+  $("detail-note-editor").readOnly = !noteEnabled;
+  $("detail-content-label")?.classList.toggle("modified", contentModified);
+  $("detail-negative-label")?.classList.toggle("modified", negativeModified);
+  $("detail-note-label")?.classList.toggle("modified", noteModified);
+  updatePromptSourceBadges();
 
   titleButton.disabled = !available;
-  contentButton.disabled = !contentEditable;
-  negativeButton.disabled = !negativeEnabled;
-  noteButton.disabled = !noteEnabled;
   addLoraButton.disabled = !loraEnabled || !state.loraManagerAvailable;
   addLoraButton.title = !loraEnabled
     ? t("添加 LoRA")
@@ -2329,25 +2462,13 @@ function updateDetailEditControls() {
     || capabilities.generation === false;
   generateButton.classList.toggle("active", state.generationBusy);
   titleButton.classList.toggle("active", state.editingTitle);
-  contentButton.classList.toggle("active", state.editingContent);
-  negativeButton.classList.toggle("active", state.editingNegative);
-  noteButton.classList.toggle("active", state.editingNote);
   titleButton.classList.toggle("modified", titleModified);
-  contentButton.classList.toggle("modified", contentModified);
-  negativeButton.classList.toggle("modified", negativeModified);
-  noteButton.classList.toggle("modified", noteModified);
   titleButton.setAttribute("aria-pressed", String(state.editingTitle));
-  contentButton.setAttribute("aria-pressed", String(state.editingContent));
-  negativeButton.setAttribute("aria-pressed", String(state.editingNegative));
-  noteButton.setAttribute("aria-pressed", String(state.editingNote));
   titleButton.title = state.editingTitle ? t("完成标题编辑") : t("修改标题");
-  contentButton.title = state.editingContent ? t("完成提示词内容编辑") : t("修改提示词内容");
-  negativeButton.title = state.editingNegative ? t("完成负面提示词编辑") : t("修改负面提示词");
-  noteButton.title = state.editingNote ? t("完成备注编辑") : t("修改备注");
   titleButton.setAttribute("aria-label", titleButton.title);
-  contentButton.setAttribute("aria-label", contentButton.title);
-  negativeButton.setAttribute("aria-label", negativeButton.title);
-  noteButton.setAttribute("aria-label", noteButton.title);
+  document.querySelectorAll("#detail-inspector .inspector-send-button[data-nai-apply]").forEach((button) => {
+    button.disabled = !naiAvailable;
+  });
 
   const saveButton = $("detail-save");
   saveButton.disabled = !available || !hasDirtyDetailEdits();
@@ -2355,36 +2476,162 @@ function updateDetailEditControls() {
   saveButton.querySelector("span").textContent = state.savingEntry ? t("正在保存") : t("保存修改");
 }
 
+function updateNaiCharacterActions() {
+  const detailEdit = $("detail-nai-edit-positions");
+  const createEdit = $("add-nai-edit-positions");
+  if (detailEdit) {
+    detailEdit.hidden = !(state.detailNaiCharactersEditor?.getValue()?.length);
+  }
+  if (createEdit) {
+    createEdit.hidden = !(state.createNaiCharactersEditor?.getValue()?.length);
+  }
+}
+
+function initializeNaiCharacterEditors() {
+  if (!state.detailNaiCharactersEditor) {
+    state.detailNaiCharactersEditor = createNaiCharactersEditor(
+      $("detail-nai-characters"),
+      {
+        translate: t,
+        onChange: () => {
+          updateNaiCharacterActions();
+          updateDetailEditControls();
+        },
+      },
+    );
+  }
+  if (!state.createNaiCharactersEditor) {
+    state.createNaiCharactersEditor = createNaiCharactersEditor(
+      $("add-nai-characters"),
+      {
+        translate: t,
+        onChange: () => updateNaiCharacterActions(),
+      },
+    );
+  }
+  updateNaiCharacterActions();
+}
+
+function updatePromptSourceBadge(id, provenance) {
+  const badge = $(id);
+  if (!badge) return;
+  const display = promptFieldSourceDisplay(provenance, t);
+  badge.hidden = !display.label;
+  badge.textContent = display.label;
+  badge.title = display.title;
+  badge.dataset.source = display.source;
+}
+
+function updatePromptSourceBadges() {
+  const entry = state.selected;
+  const isTxt = entry?.format === "txt_wildcard";
+  const draft = state.detailTextDrafts?.[state.browserMode];
+  if (!entry || isTxt) {
+    updatePromptSourceBadge("detail-content-source", null);
+    updatePromptSourceBadge("detail-negative-source", null);
+    return;
+  }
+  updatePromptSourceBadge(
+    "detail-content-source",
+    promptFieldProvenance(entry, state.browserMode, "content", draft),
+  );
+  updatePromptSourceBadge(
+    "detail-negative-source",
+    promptFieldProvenance(entry, state.browserMode, "negative", draft),
+  );
+}
+
+function initializeDetailTextDrafts(entry) {
+  const nai = normalizeNaiSettings(entry?.nai || {});
+  const hasNativeNaiText = entry?.format === "json_card";
+  state.detailTextDrafts = {
+    comfy: {
+      content: String(entry?.content || ""),
+      negative: String(entry?.negative || ""),
+      contentDirty: false,
+      negativeDirty: false,
+      resolved: false,
+    },
+    nai: {
+      content: String(hasNativeNaiText ? nai.content || "" : entry?.content || ""),
+      negative: String(hasNativeNaiText ? nai.negative || "" : entry?.negative || ""),
+      contentDirty: false,
+      negativeDirty: false,
+      resolved: !hasNativeNaiText,
+    },
+  };
+  state.detailTextMode = state.browserMode;
+  state.detailTextRequestId += 1;
+}
+
+function captureDetailTextDraft() {
+  const draft = state.detailTextDrafts?.[state.detailTextMode];
+  if (!draft) return;
+  draft.content = $("detail-content-editor").value;
+  draft.negative = $("detail-negative-editor").value;
+}
+
+function applyDetailTextDraft(mode) {
+  const draft = state.detailTextDrafts?.[mode];
+  if (!draft) return;
+  $("detail-content-editor").value = draft.content;
+  $("detail-negative-editor").value = draft.negative;
+  state.detailTextMode = mode;
+  scheduleDetailPromptResize();
+}
+
+async function resolveDetailTextDraft(mode = state.browserMode) {
+  if (!state.selected || !state.detailTextDrafts) return;
+  const normalizedMode = normalizeBrowserMode(mode);
+  const draft = state.detailTextDrafts[normalizedMode];
+  if (!draft) return;
+  if (draft.resolved) {
+    if (state.browserMode === normalizedMode) applyDetailTextDraft(normalizedMode);
+    return;
+  }
+  const requestId = ++state.detailTextRequestId;
+  const selectedKey = state.selected.key;
+  const resolved = await resolveEntryTextsForMode(
+    api,
+    state.selected,
+    normalizedMode,
+    ["content", "negative"],
+  );
+  if (
+    requestId !== state.detailTextRequestId
+    || state.selected?.key !== selectedKey
+    || !state.detailTextDrafts
+  ) return;
+  if (!draft.contentDirty && !draft.content.trim()) draft.content = resolved.texts[0] || "";
+  if (!draft.negativeDirty && !draft.negative.trim()) draft.negative = resolved.texts[1] || "";
+  draft.resolved = true;
+  if (state.browserMode === normalizedMode) applyDetailTextDraft(normalizedMode);
+}
+
 function resetDetailEditing() {
   state.editingTitle = false;
-  state.editingContent = false;
-  state.editingNegative = false;
-  state.editingNote = false;
   state.savingEntry = false;
   const title = state.selected?.name || "";
-  const content = state.selected?.content || "";
-  const negative = state.selected?.negative || "";
+  const textDraft = state.detailTextDrafts?.[state.browserMode];
+  const content = textDraft?.content || "";
+  const negative = textDraft?.negative || "";
   const note = state.selected?.note || "";
   $("detail-title").hidden = false;
   $("detail-title").textContent = title;
   $("detail-title-input").hidden = true;
   $("detail-title-input").value = title;
-  $("detail-content").hidden = false;
-  $("detail-content").textContent = content;
-  $("detail-content-editor").hidden = true;
   $("detail-content-editor").value = content;
-  $("detail-content-editor").style.height = "";
-  $("detail-negative").hidden = false;
-  $("detail-negative").textContent = negative;
-  $("detail-negative-editor").hidden = true;
   $("detail-negative-editor").value = negative;
-  $("detail-negative-editor").style.height = "";
-  $("detail-note").hidden = false;
-  $("detail-note").textContent = note;
-  $("detail-note-editor").hidden = true;
   $("detail-note-editor").value = note;
-  $("detail-note-editor").style.height = "";
   updateDetailEditControls();
+  scheduleDetailPromptResize();
+  if (state.selected) void resolveDetailTextDraft(state.browserMode);
+}
+
+async function refreshDetailDisplay() {
+  if (!state.selected) return;
+  captureDetailTextDraft();
+  await resolveDetailTextDraft(state.browserMode);
 }
 
 function resizeDetailTitleInput() {
@@ -2427,79 +2674,34 @@ function beginTitleEdit() {
 }
 
 function resizeDetailEditor(editorId) {
-  const editor = $(editorId);
-  editor.style.height = "auto";
-  editor.style.height = `${Math.max(72, editor.scrollHeight + 2)}px`;
+  autosizePromptTextarea($(editorId), CHARACTER_PROMPT_MIN_HEIGHT);
 }
 
 function resizeDetailContentEditor() {
   resizeDetailEditor("detail-content-editor");
 }
 
-function beginContentEdit() {
-  if (
-    !state.selected
-    || state.savingEntry
-    || state.selected.capabilities?.content_edit === false
-  ) return;
-  setSendStatus("");
-  const editor = $("detail-content-editor");
-  if (state.editingContent) {
-    if (!editor.value.trim()) {
-      setSendStatus(t("提示词内容不能为空"), "error");
-      editor.focus();
-      return;
-    }
-    state.editingContent = false;
-    $("detail-content").textContent = editor.value;
-    $("detail-content").hidden = false;
-    editor.hidden = true;
-    updateDetailEditControls();
-    return;
-  }
-
-  state.editingContent = true;
-  $("detail-content").hidden = true;
-  editor.hidden = false;
+function resizeDetailPromptSurfaces() {
   resizeDetailContentEditor();
-  updateDetailEditControls();
-  editor.focus();
+  resizeDetailEditor("detail-negative-editor");
+  resizeDetailEditor("detail-note-editor");
+  state.detailNaiCharactersEditor?.resizeAll();
 }
 
-function beginOptionalDetailEdit(field, label) {
-  if (!state.selected || state.savingEntry) return;
-  if (state.selected.capabilities?.[field] === false) return;
-  setSendStatus("");
-  const stateKey = field === "negative" ? "editingNegative" : "editingNote";
-  const display = $(`detail-${field}`);
-  const editor = $(`detail-${field}-editor`);
-  if (state[stateKey]) {
-    state[stateKey] = false;
-    display.textContent = editor.value;
-    display.hidden = false;
-    editor.hidden = true;
-    updateDetailEditControls();
-    return;
-  }
-  state[stateKey] = true;
-  display.hidden = true;
-  editor.hidden = false;
-  resizeDetailEditor(`detail-${field}-editor`);
-  updateDetailEditControls();
-  editor.focus();
-  editor.setAttribute("aria-label", label);
+function scheduleDetailPromptResize() {
+  requestAnimationFrame(() => resizeDetailPromptSurfaces());
 }
 
-function beginNegativeEdit() {
-  beginOptionalDetailEdit("negative", t("负面提示词"));
-}
-
-function beginNoteEdit() {
-  beginOptionalDetailEdit("note", t("备注"));
+function withConversionFallback(message, conversion) {
+  if (!conversion?.error) return message;
+  return `${message}${t("；转换失败，已使用原文：{error}", {
+    error: conversion.error.message || conversion.error,
+  })}`;
 }
 
 async function copyDetailText(editorId, buttonId, label) {
   if (!state.selected) return;
+  await resolveDetailTextDraft(state.browserMode);
   const text = $(editorId).value;
   if (!text) return;
 
@@ -2649,26 +2851,35 @@ async function saveDetailEdits() {
   const oldKey = state.selected.key;
   const payload = { key: oldKey };
   const name = $("detail-title-input").value.trim();
-  const content = $("detail-content-editor").value;
-  const negative = $("detail-negative-editor").value;
+  captureDetailTextDraft();
+  const comfyDraft = state.detailTextDrafts?.comfy || {
+    content: state.selected.content || "",
+    negative: state.selected.negative || "",
+  };
+  const content = comfyDraft.content;
+  const negative = comfyDraft.negative;
   const note = $("detail-note-editor").value;
   const lora = entriesToLoraPayload(state.detailLoraEntries);
   const settings = readDetailSettingsDraft();
+  const naiDraft = readDetailNaiDraft();
+  const naiPatch = naiSavePatch(state.selected, naiDraft);
   const imageDraft = state.imageDraft;
   if (!name) {
     setSendStatus(t("标题不能为空"), "error");
     beginTitleEdit();
     return;
   }
-  if (!content.trim()) {
+  const naiContent = naiDraft.content || "";
+  if (!content.trim() && !naiContent.trim()) {
     setSendStatus(t("提示词内容不能为空"), "error");
-    if (!state.editingContent) beginContentEdit();
     $("detail-content-editor").focus();
     return;
   }
   const titleChanged = name !== state.selected.name;
-  const contentChanged = content !== (state.selected.content || "");
-  const negativeChanged = negative !== (state.selected.negative || "");
+  const contentChanged = Boolean(comfyDraft.contentDirty)
+    && content !== (state.selected.content || "");
+  const negativeChanged = Boolean(comfyDraft.negativeDirty)
+    && negative !== (state.selected.negative || "");
   const noteChanged = note !== (state.selected.note || "");
   const loraChanged = !loraPayloadEqual(lora, state.selected.lora || emptyLoraPayload());
   const settingsChanged = !settingsEqual(settings, {
@@ -2676,12 +2887,14 @@ async function saveDetailEdits() {
     parameters: state.selected.parameters || {},
     double_sample_parameters: state.selected.double_sample_parameters || {},
   });
+  const naiChanged = Object.prototype.hasOwnProperty.call(naiPatch, "nai");
   const textChanged = titleChanged
     || contentChanged
     || negativeChanged
     || noteChanged
     || loraChanged
-    || settingsChanged;
+    || settingsChanged
+    || naiChanged;
   if (titleChanged) payload.name = name;
   if (contentChanged) payload.content = content;
   if (negativeChanged) payload.negative = negative;
@@ -2692,6 +2905,7 @@ async function saveDetailEdits() {
     payload.parameters = settings.parameters;
     payload.double_sample_parameters = settings.double_sample_parameters;
   }
+  if (naiChanged) payload.nai = naiPatch.nai;
   const saveRequestId = ++state.saveRequestId;
 
   state.savingEntry = true;
@@ -2752,11 +2966,7 @@ async function saveDetailEdits() {
       if (ownsInspector) {
         state.selectedKey = entry.key;
         state.selected = entry;
-        $("detail-title").textContent = entry.name || "";
-        renderDetailPath(entry);
-        $("detail-content").textContent = entry.content || "";
-        $("detail-negative").textContent = entry.negative || "";
-        $("detail-note").textContent = entry.note || "";
+        renderInspectorEntry(entry);
         resetImageUploadState();
         resetDetailEditing();
         setInspectorButtonsDisabled(false);
@@ -3366,6 +3576,9 @@ function clearInspector() {
   state.currentIndex = -1;
   state.selectedKey = "";
   state.selected = null;
+  state.detailTextDrafts = null;
+  state.detailTextRequestId += 1;
+  state.detailNaiCharactersEditor?.setValue([]);
   state.detailLoraEntries = [];
   state.detailModels = [];
   state.saveRequestId += 1;
@@ -3499,35 +3712,84 @@ async function sendByKey(key, slot, button) {
 
   try {
     const sendMode = state.sendMode;
+    let conversion = null;
     let result;
-    try {
-      result = await api("/pm4a/api/append-slot", {
-        method: "POST",
-        body: JSON.stringify({ slot, key, mode: sendMode }),
-      });
-    } catch (error) {
-      if (String(error.message || error) !== "text required") throw error;
+    if (state.browserMode === "nai") {
       const entry = await getEntry(key);
-      const text = slot === "negative"
-        ? (entry.negative || "").trim()
-        : entry.type === "folder" || entry.format === "txt_wildcard"
-          ? entry.wildcard_syntax || `__${entry.key}__`
-          : (entry.content || "").trim();
-      if (!text) {
+      const rawRequest = buildNaiSlotRequest(entry, slot, sendMode);
+      conversion = await convertTextsForAction(
+        api,
+        state.browserMode,
+        [rawRequest.body.value],
+        entry,
+        [slot === "negative" ? "negative" : "content"],
+      );
+      const request = buildNaiSlotRequest(
+        entry,
+        slot,
+        sendMode,
+        conversion.texts[0],
+      );
+      if (!request.body.value) {
         throw new Error(slot === "negative" ? t("负面提示词为空，没有发送内容") : t("提示词为空，没有发送内容"));
       }
-      result = await api("/pm4a/api/append-slot", {
+      result = await api(request.route, {
         method: "POST",
-        body: JSON.stringify({ slot, text, mode: sendMode }),
+        body: JSON.stringify(request.body),
       });
+    } else {
+      const entry = await getEntry(key);
+      const rawRequest = buildNaiSlotRequest(
+        entry,
+        slot,
+        sendMode,
+        undefined,
+        "comfy",
+      );
+      conversion = await convertTextsForAction(
+        api,
+        state.browserMode,
+        [rawRequest.body.value],
+        entry,
+        [slot === "negative" ? "negative" : "content"],
+      );
+      if (!conversion.skipped) {
+        const text = conversion.texts[0];
+        if (!text) {
+          throw new Error(slot === "negative" ? t("负面提示词为空，没有发送内容") : t("提示词为空，没有发送内容"));
+        }
+        result = await api("/pm4a/api/append-slot", {
+          method: "POST",
+          body: JSON.stringify({ slot, text, mode: sendMode }),
+        });
+      } else {
+        try {
+          result = await api("/pm4a/api/append-slot", {
+            method: "POST",
+            body: JSON.stringify({ slot, key, mode: sendMode }),
+          });
+        } catch (error) {
+          if (String(error.message || error) !== "text required") throw error;
+          const text = rawRequest.body.value.trim();
+          if (!text) {
+            throw new Error(slot === "negative" ? t("负面提示词为空，没有发送内容") : t("提示词为空，没有发送内容"));
+          }
+          result = await api("/pm4a/api/append-slot", {
+            method: "POST",
+            body: JSON.stringify({ slot, text, mode: sendMode }),
+          });
+        }
+      }
     }
     const replacing = sendMode === "replace";
-    const message = replacing
+    const baseMessage = replacing
       ? t("已替换“{label}”内容", { label: SLOT_LABELS[slot] })
       : t("已追加到“{label}”", { label: SLOT_LABELS[slot] });
+    const message = withConversionFallback(baseMessage, conversion);
+    const messageType = conversion?.error ? "" : "success";
 
-    toast(message, "success");
-    if (state.selectedKey === key) setSendStatus(message, "success");
+    toast(message, messageType);
+    if (state.selectedKey === key) setSendStatus(message, messageType);
   } catch (error) {
     const message = String(error.message || error);
     toast(message, "error");
@@ -3573,18 +3835,65 @@ async function sendSettingsApply(kind, button) {
   }
 }
 
+async function sendNaiSettings(button) {
+  if (button?.disabled || state.browserMode !== "nai") return;
+  if (!state.selected || state.selected.format === "txt_wildcard") {
+    toast(t("请先选择一张 JSON 卡片"), "error");
+    return;
+  }
+  button.disabled = true;
+  setSendStatus("");
+  try {
+    const nai = readNaiForm($("detail-nai-settings-form"));
+    const body = { nai };
+    await api("/pm4a/api/nai/settings/apply", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const message = Object.keys(nai).length
+      ? t("已发送 NAI 设置")
+      : t("已发送空 NAI 设置；节点现有值保持不变");
+    setSendStatus(message, "success");
+    toast(message, "success");
+  } catch (error) {
+    const message = String(error.message || error);
+    setSendStatus(message, "error");
+    toast(message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function copyByKey(key, button) {
   if (!key || button.disabled) return;
   button.disabled = true;
 
   try {
     const entry = await getEntry(key);
-    const text = entry.format === "txt_wildcard"
+    let text = entry.format === "txt_wildcard"
       ? entry.wildcard_syntax || `__${entry.key}__`
-      : entry.content || "";
+      : state.browserMode === "nai"
+        ? entry.nai?.content || entry.content || ""
+        : entry.content || entry.nai?.content || "";
     if (!text.trim()) throw new Error(t("提示词为空，没有复制内容"));
+    const converted = entry.format === "txt_wildcard"
+      ? { texts: [text], error: null, skipped: true }
+      : await convertTextsForAction(
+        api,
+        state.browserMode,
+        [text],
+        entry,
+        ["content"],
+      );
+    [text] = converted.texts;
     await writeClipboardText(text);
-    toast(t("已复制“{name}”的提示词内容", { name: entry.name || key }), "success");
+    toast(
+      withConversionFallback(
+        t("已复制“{name}”的提示词内容", { name: entry.name || key }),
+        converted,
+      ),
+      converted.error ? "" : "success",
+    );
   } catch (error) {
     toast(t("复制失败：{error}", { error: error.message || error }), "error");
   } finally {
@@ -3610,9 +3919,17 @@ function renderInspectorImage(entry, cacheBust = false) {
       emptyState.querySelector("span").textContent = t("示例图读取失败，可拖入图片替换");
       toast(t("预览图读取失败"), "error");
     };
+    imageElement.onload = () => {
+      if (state.selectedKey !== entry.key || !imageElement.naturalHeight) return;
+      state.detailNaiCharactersEditor?.setAspect(
+        imageElement.naturalWidth / imageElement.naturalHeight,
+      );
+    };
     if (cacheBust) bumpImageRevision(entry.key);
     imageElement.src = previewImageUrl(entry.key);
   } else {
+    imageElement.onload = null;
+    state.detailNaiCharactersEditor?.setAspect(1);
     imageElement.onerror = null;
     imageElement.removeAttribute("src");
     imageElement.alt = "";
@@ -3721,6 +4038,85 @@ function readDetailSettingsDraft() {
   };
 }
 
+function readDetailNaiDraft() {
+  const draft = {
+    ...readNaiForm($("detail-nai-settings-form")),
+    characters: state.detailNaiCharactersEditor?.getValue() || [],
+  };
+  const textDraft = state.detailTextDrafts?.nai;
+  const original = normalizeNaiSettings(state.selected?.nai || {});
+  if (textDraft?.contentDirty || original.content) {
+    draft.content = textDraft?.contentDirty ? textDraft.content : original.content;
+  }
+  if (textDraft?.negativeDirty || original.negative) {
+    draft.negative = textDraft?.negativeDirty ? textDraft.negative : original.negative;
+  }
+  return normalizeNaiSettings(draft);
+}
+
+function readCreateNaiDraft() {
+  return normalizeNaiSettings({
+    ...readNaiForm($("add-nai-settings-form")),
+    content: $("add-prompt-content").value,
+    negative: $("add-prompt-negative").value,
+    characters: state.createNaiCharactersEditor?.getValue() || [],
+  });
+}
+
+function populateNaiSettingsOptions() {
+  for (const formId of ["detail-nai-settings-form", "add-nai-settings-form"]) {
+    const form = $(formId);
+    if (!form) continue;
+    for (const [field, selector] of [
+      ["sampler", '[data-nai-param="sampler"]'],
+      ["scheduler", '[data-nai-param="scheduler"]'],
+    ]) {
+      const control = form.querySelector(selector);
+      setChoiceOptions(control, state.naiOptions[field], control?.value || "");
+    }
+  }
+}
+
+async function ensureNaiSettingsOptions() {
+  if (state.naiOptionsLoaded) return state.naiOptions;
+  if (state.naiOptionsPromise) return state.naiOptionsPromise;
+  const statuses = [
+    $("detail-nai-options-status"),
+    $("add-nai-options-status"),
+  ].filter(Boolean);
+  statuses.forEach((status) => {
+    status.textContent = t("正在读取 NAI 上游选项…");
+  });
+  state.naiOptionsPromise = Promise.allSettled([
+    api("/object_info/NovelAI4ASampler"),
+  ]).then(([samplerResult]) => {
+    if (samplerResult.status === "fulfilled") {
+      Object.assign(
+        state.naiOptions,
+        readObjectInfoChoices(
+          samplerResult.value,
+          "NovelAI4ASampler",
+          ["sampler", "scheduler"],
+        ),
+      );
+    }
+    state.naiOptionsLoaded = true;
+    populateNaiSettingsOptions();
+    const missing = ["sampler", "scheduler"].filter(
+      (field) => !state.naiOptions[field].length,
+    );
+    statuses.forEach((status) => {
+      status.textContent = missing.length
+        ? t("部分 NAI 上游选项不可用；仍可保留卡片当前值")
+        : "";
+    });
+    return state.naiOptions;
+  }).finally(() => {
+    state.naiOptionsPromise = null;
+  });
+  return state.naiOptionsPromise;
+}
+
 function readCreateSettingsDraft() {
   return {
     models: persistableModels(state.createModels),
@@ -3805,6 +4201,35 @@ function applySettingsDraftToCreate(settings, { replaceLora = false, lora = null
 async function loadSettingsFromImageFile(file, target) {
   const documentData = await readCreateImagePrompt(file);
   if (!documentData) throw new Error(t("图片中没有可用的生成设置"));
+  if (state.browserMode === "nai") {
+    const nai = normalizeNaiSettings(documentData.nai || {});
+    const characters = nai.characters
+      || (Array.isArray(documentData.characters) ? documentData.characters : []);
+    if (!Object.keys(nai.parameters || {}).length && !characters.length) {
+      throw new Error(t("图片中没有可用的 NAI 生成设置"));
+    }
+    const current = target === "detail"
+      ? readDetailNaiDraft()
+      : readCreateNaiDraft();
+    if (
+      (Object.keys(current.parameters || {}).length || current.characters?.length)
+      && !window.confirm(t("当前已有 NAI 生成设置，是否覆盖？"))
+    ) {
+      return false;
+    }
+    const form = target === "detail"
+      ? $("detail-nai-settings-form")
+      : $("add-nai-settings-form");
+    const editor = target === "detail"
+      ? state.detailNaiCharactersEditor
+      : state.createNaiCharactersEditor;
+    fillNaiForm(form, nai);
+    editor?.setValue(characters);
+    populateNaiSettingsOptions();
+    updateNaiCharacterActions();
+    if (target === "detail") updateDetailEditControls();
+    return true;
+  }
   const settings = settingsFromPromptDocument(documentData);
   if (settings.models.length) {
     settings.models = await alignModelsToLocal(settings.models);
@@ -4028,11 +4453,16 @@ async function openLoraPicker(target = "detail") {
 
 function renderInspectorEntry(entry, cacheBust = false) {
   const isTxt = entry.format === "txt_wildcard";
+  initializeNaiCharacterEditors();
+  initializeDetailTextDrafts(entry);
+  applyDetailTextDraft(state.browserMode);
   $("detail-title").textContent = entry.name || "";
   renderDetailPath(entry);
-  $("detail-content").textContent = entry.content || "";
-  $("detail-negative").textContent = entry.negative || "";
-  $("detail-note").textContent = entry.note || "";
+  $("detail-note-editor").value = entry.note || "";
+  fillNaiForm($("detail-nai-settings-form"), isTxt ? {} : entry.nai || {});
+  state.detailNaiCharactersEditor?.setValue(isTxt ? [] : entry.nai?.characters || []);
+  updateNaiCharacterActions();
+  populateNaiSettingsOptions();
   state.detailLoraEntries = isTxt ? [] : parseLoraEntries(entry.lora || emptyLoraPayload());
   renderDetailLoraList();
   applySettingsDraftToDetail(
@@ -4064,11 +4494,13 @@ function renderInspectorEntry(entry, cacheBust = false) {
     })
     : "";
   $("detail-negative-panel").hidden = isTxt;
-  $("detail-lora-panel").hidden = isTxt;
-  $("detail-settings-panel").hidden = isTxt;
   $("detail-note-panel").hidden = isTxt;
   $("detail-open-txt").hidden = !isTxt;
   $("detail-reveal-txt").hidden = !isTxt;
+  applyBrowserMode();
+  scheduleDetailPromptResize();
+  if (state.browserMode === "nai" && !isTxt) void ensureNaiSettingsOptions();
+  void resolveDetailTextDraft(state.browserMode);
   renderInspectorImage(entry, cacheBust);
 }
 
@@ -4130,7 +4562,8 @@ async function loadDetailAt(index, options = {}) {
   } catch (error) {
     if (error.name === "AbortError") return;
     $("detail-image-section").hidden = true;
-    $("detail-content").textContent = t("读取详情失败：{error}", { error: error.message || error });
+    $("detail-content-editor").value = t("读取详情失败：{error}", { error: error.message || error });
+    $("detail-content-editor").readOnly = true;
     $("detail-body").hidden = false;
     toast(t("读取详情失败：{error}", { error: error.message || error }), "error");
   } finally {
@@ -5215,6 +5648,8 @@ async function runGenerationBatch(event) {
 }
 
 function setupEventHandlers() {
+  $("btn-browser-mode-comfy").addEventListener("click", () => setBrowserMode("comfy"));
+  $("btn-browser-mode-nai").addEventListener("click", () => setBrowserMode("nai"));
   $("btn-generation-settings").addEventListener("click", openGenerationSettings);
   $("generation-settings-close").addEventListener("click", closeGenerationSettings);
   $("generation-settings-cancel").addEventListener("click", closeGenerationSettings);
@@ -5329,9 +5764,7 @@ function setupEventHandlers() {
   window.addEventListener("resize", () => {
     updateWorkspaceMargin();
     if (state.editingTitle) resizeDetailTitleInput();
-    if (state.editingContent) resizeDetailContentEditor();
-    if (state.editingNegative) resizeDetailEditor("detail-negative-editor");
-    if (state.editingNote) resizeDetailEditor("detail-note-editor");
+    resizeDetailPromptSurfaces();
     document.querySelectorAll(".generation-auto-resize").forEach(resizeGenerationAffixField);
   });
 
@@ -5620,9 +6053,6 @@ function setupEventHandlers() {
   $("detail-prev").addEventListener("click", () => navigateDetail(-1));
   $("detail-next").addEventListener("click", () => navigateDetail(1));
   $("detail-edit-title").addEventListener("click", beginTitleEdit);
-  $("detail-edit-content").addEventListener("click", beginContentEdit);
-  $("detail-edit-negative").addEventListener("click", beginNegativeEdit);
-  $("detail-edit-note").addEventListener("click", beginNoteEdit);
   $("detail-add-lora").addEventListener("click", () => {
     void openLoraPicker();
   });
@@ -5669,6 +6099,11 @@ function setupEventHandlers() {
     input.value = "";
   });
   $("detail-save").addEventListener("click", saveDetailEdits);
+  document.querySelectorAll("#detail-inspector .inspector-send-button[data-nai-apply]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void sendNaiSettings(button);
+    });
+  });
   populateRatioHelper();
   $("detail-add-model")?.addEventListener("click", () => {
     addBaseModelFromSelect("detail-base-model", "detail");
@@ -5708,19 +6143,61 @@ function setupEventHandlers() {
       setCreateImageStatus(t("加载生成设置失败：{error}", { error: error.message || error }), "error");
     }
   });
+  $("detail-nai-add-character")?.addEventListener("click", () => {
+    initializeNaiCharacterEditors();
+    state.detailNaiCharactersEditor?.addCharacter();
+  });
+  $("detail-nai-edit-positions")?.addEventListener("click", () => {
+    state.detailNaiCharactersEditor?.openPositions();
+  });
+  $("add-nai-add-character")?.addEventListener("click", () => {
+    initializeNaiCharacterEditors();
+    state.createNaiCharactersEditor?.addCharacter();
+  });
+  $("add-nai-edit-positions")?.addEventListener("click", () => {
+    state.createNaiCharactersEditor?.openPositions();
+  });
+  $("add-prompt-load-nai-settings")?.addEventListener("click", async () => {
+    if (!state.createImage) {
+      setCreateImageStatus(t("请先拖入或选择示例图"), "error");
+      toast(t("请先拖入或选择示例图"), "error");
+      return;
+    }
+    try {
+      const loaded = await loadSettingsFromImageFile(state.createImage, "create");
+      if (loaded) setCreateImageStatus(t("已从图片加载 NAI 生成设置"), "success");
+    } catch (error) {
+      setCreateImageStatus(t("加载生成设置失败：{error}", { error: error.message || error }), "error");
+    }
+  });
   ["detail-parameters-form", "detail-double-form"].forEach((id) => {
     $(id)?.addEventListener("input", () => updateDetailEditControls());
   });
+  $("detail-nai-settings-form").addEventListener("input", updateDetailEditControls);
   $("detail-title-input").addEventListener("input", () => {
     resizeDetailTitleInput();
     updateDetailEditControls();
   });
   $("detail-content-editor").addEventListener("input", () => {
+    const draft = state.detailTextDrafts?.[state.detailTextMode];
+    if (draft) {
+      draft.content = $("detail-content-editor").value;
+      draft.contentDirty = true;
+      draft.resolved = true;
+    }
     resizeDetailContentEditor();
     updateDetailEditControls();
   });
   ["negative", "note"].forEach((field) => {
     $(`detail-${field}-editor`).addEventListener("input", () => {
+      if (field === "negative") {
+        const draft = state.detailTextDrafts?.[state.detailTextMode];
+        if (draft) {
+          draft.negative = $("detail-negative-editor").value;
+          draft.negativeDirty = true;
+          draft.resolved = true;
+        }
+      }
       resizeDetailEditor(`detail-${field}-editor`);
       updateDetailEditControls();
     });
@@ -5733,12 +6210,13 @@ function setupEventHandlers() {
   ].forEach((editor) => {
     editor.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (editor === $("detail-title-input")) beginTitleEdit();
-        else if (editor === $("detail-content-editor")) beginContentEdit();
-        else if (editor === $("detail-negative-editor")) beginNegativeEdit();
-        else beginNoteEdit();
+        if (editor === $("detail-title-input")) {
+          event.preventDefault();
+          event.stopPropagation();
+          beginTitleEdit();
+        } else {
+          editor.blur();
+        }
       } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
         saveDetailEdits();
@@ -5800,8 +6278,10 @@ function setupInfiniteScroll() {
 
 async function init() {
   applySidebarState();
+  initializeNaiCharacterEditors();
   installInspectorSendIcons();
   applyViewMode(false);
+  applyBrowserMode();
   updateSendModeButton();
   $("sort-select").value = state.sortMode;
   await loadLibraryFavorites();

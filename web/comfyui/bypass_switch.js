@@ -1,5 +1,5 @@
 import { app } from "../../scripts/app.js";
-import { t } from "./i18n.js?v=1";
+import { t } from "./i18n.js";
 
 const NODE_CLASS = "Bypass Switch (4A Prompt Manager)";
 const MODE_ALWAYS = 0;

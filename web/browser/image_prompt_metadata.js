@@ -506,6 +506,7 @@ function normalizeDocument(payload, fallbackSource = "4a") {
   ].join("\n");
   const loras = normalizeLoraMetadata(payload.loras, promptText);
   const models = normalizeModels(payload.models);
+  const characters = Array.isArray(payload.characters) ? payload.characters : [];
   const {
     version: _ignoredVersion,
     ...rest
@@ -517,6 +518,7 @@ function normalizeDocument(payload, fallbackSource = "4a") {
     tracks: payload.tracks.map(normalizeTrack),
     positive: stripLoraTags(payload.positive),
     negative: typeof payload.negative === "string" ? payload.negative : "",
+    characters,
     parameters: parameters || undefined,
     double_sample_parameters: doubleSampleParameters || undefined,
     loras: loras || undefined,
@@ -592,36 +594,112 @@ function parse4A(metadata) {
   return null;
 }
 
-function promptDocument(sourceType, positive, negative, parameters = null) {
+function promptDocument(
+  sourceType,
+  positive,
+  negative,
+  parameters = null,
+  characters = [],
+  nai = null,
+) {
   const positiveText = cleanText(positive);
   const negativeText = cleanText(negative);
-  if (!positiveText && !negativeText) return null;
+  const characterList = Array.isArray(characters) ? characters : [];
+  const naiSettings = nai && typeof nai === "object" && !Array.isArray(nai)
+    && Object.keys(nai).length
+    ? nai
+    : null;
+  if (!positiveText && !negativeText && !characterList.length) return null;
   return normalizeDocument({
     source_type: sourceType,
     source_label: SOURCE_LABELS[sourceType],
     tracks: positiveText ? [{ id: "positive", name: "正面", text: positiveText }] : [],
     positive: positiveText,
     negative: negativeText,
+    characters: characterList,
     parameters,
+    ...(naiSettings ? { nai: naiSettings } : {}),
   }, sourceType);
 }
 
-function characterLines(base, captions) {
-  const lines = [];
-  const baseText = cleanText(base);
-  if (baseText) lines.push(baseText);
-  if (Array.isArray(captions)) {
-    captions.forEach((entry, index) => {
-      const text = cleanText(entry?.char_caption);
-      if (text) lines.push(`char${index + 1}: ${text}`);
-    });
-  }
-  return lines.join("\n");
+export function clampNovelAICoordinate(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0.5;
+  return Math.min(1, Math.max(0, number));
 }
 
-function parseNovelAI(metadata) {
+export function buildNovelAICharacters(positiveCaption, negativeCaption, v4Prompt) {
+  const positiveChars = Array.isArray(positiveCaption?.char_captions)
+    ? positiveCaption.char_captions
+    : [];
+  const negativeChars = Array.isArray(negativeCaption?.char_captions)
+    ? negativeCaption.char_captions
+    : [];
+  const count = Math.max(positiveChars.length, negativeChars.length);
+  const useCoords = v4Prompt?.use_coords === true;
+  const useOrder = v4Prompt?.use_order === true;
+  const characters = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const positiveEntry = positiveChars[index];
+    const negativeEntry = negativeChars[index];
+    let usePosition = false;
+    let x = 0.5;
+    let y = 0.5;
+
+    if (useCoords && positiveEntry) {
+      const center = positiveEntry?.centers?.[0];
+      const centerX = finiteNumber(center?.x);
+      const centerY = finiteNumber(center?.y);
+      if (centerX !== null && centerY !== null) {
+        usePosition = true;
+        x = clampNovelAICoordinate(centerX);
+        y = clampNovelAICoordinate(centerY);
+      }
+    }
+
+    characters.push({
+      id: `char-${index + 1}`,
+      name: `角色 ${index + 1}`,
+      enabled: true,
+      positive: cleanText(positiveEntry?.char_caption),
+      negative: cleanText(negativeEntry?.char_caption),
+      mode: "sequence",
+      use_position: usePosition,
+      x,
+      y,
+      use_order: useOrder,
+    });
+  }
+
+  return characters;
+}
+
+export function novelAISettingsFromComment(comment) {
+  if (!comment || typeof comment !== "object" || Array.isArray(comment)) return {};
+  const parameters = {};
+  const steps = finiteNumber(comment.steps);
+  const cfg = finiteNumber(comment.scale ?? comment.cfg);
+  const cfgRescale = finiteNumber(comment.cfg_rescale);
+  const sampler = cleanText(comment.sampler);
+  const scheduler = cleanText(comment.noise_schedule ?? comment.scheduler);
+  const width = finiteNumber(comment.width);
+  const height = finiteNumber(comment.height);
+  if (steps !== null) parameters.steps = Math.trunc(steps);
+  if (cfg !== null) parameters.cfg = cfg;
+  if (sampler) parameters.sampler = sampler;
+  if (scheduler) parameters.scheduler = scheduler;
+  if (cfgRescale !== null) parameters.cfg_rescale = cfgRescale;
+  if (width !== null && width > 0) parameters.width = Math.trunc(width);
+  if (height !== null && height > 0) parameters.height = Math.trunc(height);
+  return Object.keys(parameters).length ? { parameters } : {};
+}
+
+export function parseNovelAI(metadata) {
   const commentRaw = metadataValue(metadata, "Comment");
-  const comment = parseJsonValue(commentRaw);
+  const comment = commentRaw && typeof commentRaw === "object"
+    ? commentRaw
+    : parseJsonValue(commentRaw);
   const software = cleanText(firstString(metadataValue(metadata, "Software")));
   const source = cleanText(firstString(metadataValue(metadata, "Source")));
   const title = cleanText(firstString(metadataValue(metadata, "Title")));
@@ -634,19 +712,45 @@ function parseNovelAI(metadata) {
 
   const positiveCaption = comment?.v4_prompt?.caption;
   const negativeCaption = comment?.v4_negative_prompt?.caption;
-  const positive = characterLines(
-    positiveCaption?.base_caption
-      ?? comment?.prompt
+  const hasV4Captions = Boolean(positiveCaption || negativeCaption);
+
+  let positive;
+  let negative;
+  let characters;
+  if (hasV4Captions) {
+    positive = cleanText(positiveCaption?.base_caption);
+    negative = cleanText(negativeCaption?.base_caption);
+    if (!positive) {
+      positive = cleanText(
+        comment?.prompt
+        ?? firstString(metadataValue(metadata, "Description")),
+      );
+    }
+    if (!negative) {
+      negative = cleanText(comment?.uc ?? comment?.negative_prompt);
+    }
+    characters = buildNovelAICharacters(
+      positiveCaption,
+      negativeCaption,
+      comment?.v4_prompt,
+    );
+  } else {
+    positive = cleanText(
+      comment?.prompt
       ?? firstString(metadataValue(metadata, "Description")),
-    positiveCaption?.char_captions,
+    );
+    negative = cleanText(comment?.uc ?? comment?.negative_prompt);
+    characters = [];
+  }
+
+  return promptDocument(
+    "novelai",
+    positive,
+    negative,
+    null,
+    characters,
+    novelAISettingsFromComment(comment),
   );
-  const negative = characterLines(
-    negativeCaption?.base_caption
-      ?? comment?.uc
-      ?? comment?.negative_prompt,
-    negativeCaption?.char_captions,
-  );
-  return promptDocument("novelai", positive, negative);
 }
 
 const DEFAULT_A1111_SCHEDULERS = [
