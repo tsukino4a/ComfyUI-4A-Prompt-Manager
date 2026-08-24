@@ -61,6 +61,7 @@ import {
   normalizeNaiSettings,
   promptFieldProvenance,
   promptFieldSourceDisplay,
+  rawTextForNaiSlot,
   readNaiForm,
   readObjectInfoChoices,
   resolveEntryTextsForMode,
@@ -3870,11 +3871,7 @@ async function copyByKey(key, button) {
 
   try {
     const entry = await getEntry(key);
-    let text = entry.format === "txt_wildcard"
-      ? entry.wildcard_syntax || `__${entry.key}__`
-      : state.browserMode === "nai"
-        ? entry.nai?.content || entry.content || ""
-        : entry.content || entry.nai?.content || "";
+    let text = rawTextForNaiSlot(entry, "quality", state.browserMode);
     if (!text.trim()) throw new Error(t("提示词为空，没有复制内容"));
     const converted = entry.format === "txt_wildcard"
       ? { texts: [text], error: null, skipped: true }

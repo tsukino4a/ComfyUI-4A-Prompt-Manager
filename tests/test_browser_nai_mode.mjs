@@ -354,6 +354,7 @@ test("copy and send actions convert for the selected Browser mode", () => {
   assert.match(app, /convertTextsForAction/);
   assert.match(app, /async function sendNaiSettings\(/);
   assert.match(app, /async function copyByKey\(/);
+  assert.match(app, /rawTextForNaiSlot\(entry, "quality", state\.browserMode\)/);
   assert.match(
     app,
     /convertTextsForAction\(\s*api,\s*state\.browserMode,\s*\[text\],\s*entry,\s*\["content"\]/,

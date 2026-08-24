@@ -18,6 +18,7 @@ const {
   emptyNaiSettings,
   fillNaiForm,
   flattenNovelAIForComfyMode,
+  naiTextForComfyField,
   naiSavePatch,
   naiSettingsEqual,
   normalizeBrowserMode,
@@ -52,6 +53,38 @@ test("Comfy add-prompt import flattens NovelAI characters into prompt text", () 
       positive: "base positive\nchar1: alice\nchar2: bob",
       negative: "base negative\nchar1: bad alice\nchar3: bad carol",
     },
+  );
+});
+
+test("Comfy fallback flattens NAI card characters like add-prompt import", () => {
+  const entry = {
+    format: "json_card",
+    nai: {
+      content: "base positive",
+      negative: "base negative",
+      characters: [
+        { positive: "alice", negative: "bad alice" },
+        { positive: "bob", negative: "" },
+        { positive: "", negative: "bad carol" },
+      ],
+    },
+  };
+  assert.equal(
+    naiTextForComfyField(entry, "content"),
+    "base positive\nchar1: alice\nchar2: bob",
+  );
+  assert.equal(
+    naiTextForComfyField(entry, "negative"),
+    "base negative\nchar1: bad alice\nchar3: bad carol",
+  );
+  assert.equal(shouldConvertDetail("comfy", entry), true);
+  assert.equal(
+    rawTextForNaiSlot(entry, "quality", "comfy"),
+    "base positive\nchar1: alice\nchar2: bob",
+  );
+  assert.deepEqual(
+    promptFieldProvenance(entry, "comfy", "content"),
+    { source: "converted", origin: "nai" },
   );
 });
 
@@ -354,6 +387,10 @@ test("conversion predicate uses native-mode text first and falls back per field"
   assert.equal(shouldConvertDetail("comfy", {
     format: "json_card",
     nai: { content: "1.2::red::" },
+  }), true);
+  assert.equal(shouldConvertDetail("comfy", {
+    format: "json_card",
+    nai: { characters: [{ positive: "hero" }] },
   }), true);
   assert.equal(shouldConvertDetail("comfy", {
     format: "json_card",
@@ -708,6 +745,28 @@ test("resolveEntryTextsForMode keeps native fields and converts only empty fallb
   assert.equal(calls[0][0], "/pm4a/api/convert/nai-to-anima");
   assert.deepEqual(comfyFallback.texts, ["converted nai", "converted nai"]);
   assert.equal(comfyFallback.converted, true);
+
+  calls.length = 0;
+  await resolveEntryTextsForMode(request, {
+    format: "json_card",
+    nai: {
+      content: "1.2::hero::",
+      negative: "lowres",
+      characters: [
+        { positive: "alice", negative: "bad alice" },
+        { positive: "bob" },
+      ],
+    },
+  }, "comfy");
+  assert.deepEqual(calls, [[
+    "/pm4a/api/convert/nai-to-anima",
+    {
+      texts: [
+        "1.2::hero::\nchar1: alice\nchar2: bob",
+        "lowres\nchar1: bad alice",
+      ],
+    },
+  ]]);
 });
 
 test("resolveEntryTextsForMode uses raw fallback text when conversion fails", async () => {

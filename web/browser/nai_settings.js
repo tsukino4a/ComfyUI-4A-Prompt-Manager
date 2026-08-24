@@ -19,24 +19,34 @@ export function emptyNaiSettings() {
   return {};
 }
 
+export function appendNaiCharacterLines(base, characters, key) {
+  const lines = [String(base || "").trim()];
+  const list = Array.isArray(characters) ? characters : [];
+  list.forEach((character, index) => {
+    const text = typeof character?.[key] === "string" ? character[key].trim() : "";
+    if (text) lines.push(`char${index + 1}: ${text}`);
+  });
+  return lines.filter(Boolean).join("\n");
+}
+
+export function naiTextForComfyField(entry, field = "content") {
+  const nai = entry?.nai && typeof entry.nai === "object" && !Array.isArray(entry.nai)
+    ? entry.nai
+    : {};
+  const textKey = field === "negative" ? "negative" : "content";
+  const characterKey = field === "negative" ? "negative" : "positive";
+  return appendNaiCharacterLines(nai[textKey], nai.characters, characterKey);
+}
+
 export function flattenNovelAIForComfyMode(documentData, texts = {}) {
   const positive = String(texts.positive || "").trim();
   const negative = String(texts.negative || "").trim();
   if (documentData?.source_type !== "novelai" || !Array.isArray(documentData.characters)) {
     return { positive, negative };
   }
-
-  const appendCharacters = (base, key) => [
-    base,
-    ...documentData.characters.map((character, index) => {
-      const text = typeof character?.[key] === "string" ? character[key].trim() : "";
-      return text ? `char${index + 1}: ${text}` : "";
-    }),
-  ].filter(Boolean).join("\n");
-
   return {
-    positive: appendCharacters(positive, "positive"),
-    negative: appendCharacters(negative, "negative"),
+    positive: appendNaiCharacterLines(positive, documentData.characters, "positive"),
+    negative: appendNaiCharacterLines(negative, documentData.characters, "negative"),
   };
 }
 
@@ -212,7 +222,7 @@ export function shouldConvertDetail(mode, entry, field = "content") {
   if (normalizeBrowserMode(mode) === "nai") {
     return !String(entry?.nai?.[field] || "").trim() && Boolean(String(entry?.[field] || "").trim());
   }
-  return !String(entry?.[field] || "").trim() && Boolean(String(entry?.nai?.[field] || "").trim());
+  return !String(entry?.[field] || "").trim() && Boolean(naiTextForComfyField(entry, field).trim());
 }
 
 export function browserModeVisibility(mode, isTxt = false) {
@@ -241,7 +251,7 @@ export function rawTextForNaiSlot(entry, slot, targetMode = "nai") {
   if (slot === "negative") {
     return preferNonblankText(
       naiMode ? entry?.nai?.negative : entry?.negative,
-      naiMode ? entry?.negative : entry?.nai?.negative,
+      naiMode ? entry?.negative : naiTextForComfyField(entry, "negative"),
     );
   }
   if (entry?.type === "folder" || entry?.format === "txt_wildcard") {
@@ -249,7 +259,7 @@ export function rawTextForNaiSlot(entry, slot, targetMode = "nai") {
   }
   return preferNonblankText(
     naiMode ? entry?.nai?.content : entry?.content,
-    naiMode ? entry?.content : entry?.nai?.content,
+    naiMode ? entry?.content : naiTextForComfyField(entry, "content"),
   );
 }
 
@@ -349,7 +359,7 @@ function fallbackEntryText(entry, mode, field) {
   if (normalizeBrowserMode(mode) === "nai") {
     return String(entry?.[field] || "");
   }
-  return String(entry?.nai?.[field] || "");
+  return naiTextForComfyField(entry, field);
 }
 
 function draftFieldState(draft, field) {
