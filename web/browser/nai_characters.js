@@ -70,14 +70,6 @@ export function normalizeNaiCharacters(value) {
   return characters;
 }
 
-export function naiCharactersUsePositions(value) {
-  const characters = normalizeNaiCharacters(value);
-  return Boolean(
-    characters.length
-    && characters.every((entry) => Number.isFinite(entry.x) && Number.isFinite(entry.y)),
-  );
-}
-
 export function evenlyDistributedCharacterPositions(count, aspect = 1) {
   const total = Math.max(0, Number.parseInt(count, 10) || 0);
   if (!total) return [];

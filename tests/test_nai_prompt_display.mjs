@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
+import { appendNaiCharacterLines } from "../web/browser/nai_settings.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const frontend = path.join(root, "web", "comfyui", "prompt_display.js");
@@ -12,6 +13,7 @@ const source = fs.readFileSync(frontend, "utf8");
 const context = vm.createContext({
   app: { graph: null, registerExtension() {} },
   api: {},
+  appendNaiCharacterLines,
   isScheduler(node) {
     return (node?.comfyClass || node?.type) === "Prompt Scheduler (4A Prompt Manager)";
   },

@@ -54,8 +54,11 @@ import {
   browserModeVisibility,
   buildNaiSlotRequest,
   convertTextsForAction,
+  copySharedSize,
   fillNaiForm,
+  fillSharedSizeOnForm,
   flattenNovelAIForComfyMode,
+  naiApplyPayload,
   naiSavePatch,
   normalizeBrowserMode,
   normalizeNaiSettings,
@@ -64,8 +67,10 @@ import {
   rawTextForNaiSlot,
   readNaiForm,
   readObjectInfoChoices,
+  readSharedSizeFromForm,
   resolveEntryTextsForMode,
   setChoiceOptions,
+  sharedSizeFrom,
 } from "./nai_settings.js";
 
 setLocale(readBrowserLocale());
@@ -694,7 +699,12 @@ async function saveNewPrompt(event) {
   let entry = null;
   let imageError = "";
   try {
-    const settings = naiMode ? emptyCardSettings() : readCreateSettingsDraft();
+    const settings = naiMode
+      ? {
+        ...emptyCardSettings(),
+        parameters: readSharedSizeFromForm($("add-nai-settings-form")),
+      }
+      : readCreateSettingsDraft();
     const lora = naiMode ? emptyLoraPayload() : entriesToLoraPayload(state.createLoraEntries);
     const nai = naiMode ? readCreateNaiDraft() : {};
     const data = await api("/pm4a/api/entry/create", {
@@ -2392,11 +2402,7 @@ function hasDirtyDetailEdits() {
       state.selected.lora || emptyLoraPayload(),
     );
   const settingsChanged = capabilities.parameters !== false
-    && !settingsEqual(readDetailSettingsDraft(), {
-      models: state.selected.models || [],
-      parameters: state.selected.parameters || {},
-      double_sample_parameters: state.selected.double_sample_parameters || {},
-    });
+    && !settingsEqual(readDetailSettingsDraft(), storedCardSettings(state.selected));
   const naiChanged = Object.prototype.hasOwnProperty.call(
     naiSavePatch(state.selected, readDetailNaiDraft()),
     "nai",
@@ -2883,12 +2889,13 @@ async function saveDetailEdits() {
     && negative !== (state.selected.negative || "");
   const noteChanged = note !== (state.selected.note || "");
   const loraChanged = !loraPayloadEqual(lora, state.selected.lora || emptyLoraPayload());
-  const settingsChanged = !settingsEqual(settings, {
-    models: state.selected.models || [],
-    parameters: state.selected.parameters || {},
-    double_sample_parameters: state.selected.double_sample_parameters || {},
-  });
+  const settingsChanged = !settingsEqual(settings, storedCardSettings(state.selected));
   const naiChanged = Object.prototype.hasOwnProperty.call(naiPatch, "nai");
+  const leftoverSize = sharedSizeFrom({}, state.selected.nai);
+  const storedParameters = state.selected.parameters || {};
+  const migrateLeftoverSize = naiChanged && Object.keys(leftoverSize).some(
+    (key) => storedParameters[key] == null,
+  );
   const textChanged = titleChanged
     || contentChanged
     || negativeChanged
@@ -2901,9 +2908,11 @@ async function saveDetailEdits() {
   if (negativeChanged) payload.negative = negative;
   if (noteChanged) payload.note = note;
   if (loraChanged) payload.lora = lora;
-  if (settingsChanged) {
+  if (settingsChanged || migrateLeftoverSize) {
     payload.models = settings.models;
-    payload.parameters = settings.parameters;
+    payload.parameters = settingsChanged
+      ? settings.parameters
+      : { ...settings.parameters, ...leftoverSize };
     payload.double_sample_parameters = settings.double_sample_parameters;
   }
   if (naiChanged) payload.nai = naiPatch.nai;
@@ -3845,11 +3854,11 @@ async function sendNaiSettings(button) {
   button.disabled = true;
   setSendStatus("");
   try {
-    const nai = readNaiForm($("detail-nai-settings-form"));
-    const body = { nai };
+    const naiForm = $("detail-nai-settings-form");
+    const nai = naiApplyPayload(readNaiForm(naiForm), readSharedSizeFromForm(naiForm));
     await api("/pm4a/api/nai/settings/apply", {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ nai }),
     });
     const message = Object.keys(nai).length
       ? t("已发送 NAI 设置")
@@ -4027,6 +4036,36 @@ function commitLoraPickerEntries(entries) {
   updateDetailEditControls();
 }
 
+function storedCardSettings(entry) {
+  return {
+    models: entry?.models || [],
+    parameters: {
+      ...(entry?.parameters || {}),
+      ...sharedSizeFrom(entry?.parameters, entry?.nai),
+    },
+    double_sample_parameters: entry?.double_sample_parameters || {},
+  };
+}
+
+function sharedSizeForms(scope) {
+  return scope === "create"
+    ? [$("add-parameters-form"), $("add-nai-settings-form")]
+    : [$("detail-parameters-form"), $("detail-nai-settings-form")];
+}
+
+function applySharedSize(scope, parameters = {}, nai = {}) {
+  const [parametersRoot, naiRoot] = sharedSizeForms(scope);
+  const size = sharedSizeFrom(parameters, nai);
+  fillSharedSizeOnForm(parametersRoot, size, "data-param");
+  fillSharedSizeOnForm(naiRoot, size);
+}
+
+function syncSharedSize(scope, source) {
+  const [parametersRoot, naiRoot] = sharedSizeForms(scope);
+  if (source === "nai") copySharedSize(naiRoot, "data-nai-param", parametersRoot, "data-param");
+  else copySharedSize(parametersRoot, "data-param", naiRoot, "data-nai-param");
+}
+
 function readDetailSettingsDraft() {
   return {
     models: persistableModels(state.detailModels),
@@ -4165,6 +4204,7 @@ function applyRatioHelperToDetail() {
   const height = form.querySelector('[data-param="height"]');
   if (width) width.value = String(dims.width);
   if (height) height.value = String(dims.height);
+  syncSharedSize("detail", "comfy");
   updateDetailEditControls();
 }
 
@@ -4173,6 +4213,7 @@ function applySettingsDraftToDetail(settings, { replaceLora = false, lora = null
   state.detailModels = next.models;
   fillParametersForm($("detail-parameters-form"), next.parameters);
   fillDoubleSampleForm($("detail-double-form"), next.double_sample_parameters);
+  applySharedSize("detail", next.parameters, state.selected?.nai || {});
   renderDetailModelsList();
   if (replaceLora && lora) {
     state.detailLoraEntries = parseLoraEntries(lora);
@@ -4187,6 +4228,7 @@ function applySettingsDraftToCreate(settings, { replaceLora = false, lora = null
   state.createModels = next.models;
   fillParametersForm($("add-parameters-form"), next.parameters);
   fillDoubleSampleForm($("add-double-form"), next.double_sample_parameters);
+  syncSharedSize("create", "comfy");
   renderCreateModelsList();
   if (replaceLora && lora) {
     state.createLoraEntries = parseLoraEntries(lora);
@@ -4199,10 +4241,16 @@ async function loadSettingsFromImageFile(file, target) {
   const documentData = await readCreateImagePrompt(file);
   if (!documentData) throw new Error(t("图片中没有可用的生成设置"));
   if (state.browserMode === "nai") {
-    const nai = normalizeNaiSettings(documentData.nai || {});
+    const rawNai = documentData.nai || {};
+    const nai = normalizeNaiSettings(rawNai);
+    const sharedSize = sharedSizeFrom(documentData.parameters, rawNai);
     const characters = nai.characters
       || (Array.isArray(documentData.characters) ? documentData.characters : []);
-    if (!Object.keys(nai.parameters || {}).length && !characters.length) {
+    if (
+      !Object.keys(nai.parameters || {}).length
+      && !characters.length
+      && !Object.keys(sharedSize).length
+    ) {
       throw new Error(t("图片中没有可用的 NAI 生成设置"));
     }
     const current = target === "detail"
@@ -4221,6 +4269,7 @@ async function loadSettingsFromImageFile(file, target) {
       ? state.detailNaiCharactersEditor
       : state.createNaiCharactersEditor;
     fillNaiForm(form, nai);
+    applySharedSize(target, sharedSize, rawNai);
     editor?.setValue(characters);
     populateNaiSettingsOptions();
     updateNaiCharacterActions();
@@ -6168,9 +6217,25 @@ function setupEventHandlers() {
     }
   });
   ["detail-parameters-form", "detail-double-form"].forEach((id) => {
-    $(id)?.addEventListener("input", () => updateDetailEditControls());
+    $(id)?.addEventListener("input", (event) => {
+      const key = event.target?.getAttribute?.("data-param");
+      if (key === "width" || key === "height") syncSharedSize("detail", "comfy");
+      updateDetailEditControls();
+    });
   });
-  $("detail-nai-settings-form").addEventListener("input", updateDetailEditControls);
+  $("detail-nai-settings-form").addEventListener("input", (event) => {
+    const key = event.target?.getAttribute?.("data-nai-param");
+    if (key === "width" || key === "height") syncSharedSize("detail", "nai");
+    updateDetailEditControls();
+  });
+  $("add-parameters-form")?.addEventListener("input", (event) => {
+    const key = event.target?.getAttribute?.("data-param");
+    if (key === "width" || key === "height") syncSharedSize("create", "comfy");
+  });
+  $("add-nai-settings-form")?.addEventListener("input", (event) => {
+    const key = event.target?.getAttribute?.("data-nai-param");
+    if (key === "width" || key === "height") syncSharedSize("create", "nai");
+  });
   $("detail-title-input").addEventListener("input", () => {
     resizeDetailTitleInput();
     updateDetailEditControls();

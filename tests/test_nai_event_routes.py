@@ -57,13 +57,13 @@ class NaiEventRouteTests(unittest.IsolatedAsyncioTestCase):
 
         for name in (
             "handle_nai_append_slot",
-            "handle_nai_document_apply",
             "handle_nai_settings_apply",
         ):
             self.assertTrue(
                 callable(getattr(self.routes_tools, name, None)),
                 f"{name} must exist",
             )
+        self.assertFalse(hasattr(self.routes_tools, "handle_nai_document_apply"))
         expected = {
             (
                 "POST",
@@ -72,16 +72,14 @@ class NaiEventRouteTests(unittest.IsolatedAsyncioTestCase):
             ),
             (
                 "POST",
-                "/pm4a/api/nai/document/apply",
-                self.routes_tools.handle_nai_document_apply,
-            ),
-            (
-                "POST",
                 "/pm4a/api/nai/settings/apply",
                 self.routes_tools.handle_nai_settings_apply,
             ),
         }
         self.assertTrue(expected.issubset(set(routes._API_ROUTES)))
+        self.assertFalse(
+            any(path == "/pm4a/api/nai/document/apply" for _, path, _ in routes._API_ROUTES),
+        )
         self.assertIn(
             (
                 "POST",
@@ -184,210 +182,6 @@ class NaiEventRouteTests(unittest.IsolatedAsyncioTestCase):
                 except Exception as exc:
                     self.fail(f"invalid type escaped route validation: {exc!r}")
                 self.assertEqual(response.status, 400)
-        self.assertEqual(self.recorder.calls, [])
-
-    async def test_document_apply_sends_replace_document_without_normalizing_it(
-        self,
-    ) -> None:
-        document = {
-            "tracks": [
-                {
-                    "id": "scene",
-                    "name": "场景",
-                    "text": "outside",
-                    "custom_node_field": {"preserved": True},
-                }
-            ],
-            "positive": "best quality",
-            "negative": "lowres",
-            "characters": [
-                {
-                    "id": "hero",
-                    "name": "Hero",
-                    "positive": "hero",
-                    "negative": "",
-                }
-            ],
-        }
-        response = await self.routes_tools.handle_nai_document_apply(
-            Request(
-                {
-                    "document": document,
-                    "mode": "replace",
-                    "node_ids": [21],
-                }
-            )
-        )
-
-        expected = {
-            "document": document,
-            "mode": "replace",
-            "node_class": "NAI Prompt Scheduler (4A Prompt Manager)",
-            "target_mode": "nai",
-            "node_ids": [21],
-        }
-        self.assertEqual(response.status, 200)
-        self.assertEqual(self.recorder.calls, [("pm4a_nai_document_update", expected)])
-
-    async def test_document_apply_rejects_bad_shapes_and_oversized_events(self) -> None:
-        valid = {
-            "tracks": [],
-            "positive": "",
-            "negative": "",
-            "characters": [],
-        }
-        invalid_documents = [
-            None,
-            [],
-            {**valid, "tracks": {}},
-            {**valid, "tracks": ["not-an-object"]},
-            {**valid, "positive": []},
-            {**valid, "negative": None},
-            {**valid, "characters": {}},
-            {**valid, "characters": ["not-an-object"]},
-        ]
-        for document in invalid_documents:
-            with self.subTest(document=document):
-                response = await self.routes_tools.handle_nai_document_apply(
-                    Request({"document": document})
-                )
-                self.assertEqual(response.status, 400)
-
-        append_mode = await self.routes_tools.handle_nai_document_apply(
-            Request({"document": valid, "mode": "append"})
-        )
-        too_many_tracks = await self.routes_tools.handle_nai_document_apply(
-            Request({"document": {**valid, "tracks": [{} for _ in range(101)]}})
-        )
-        too_many_characters = await self.routes_tools.handle_nai_document_apply(
-            Request({"document": {**valid, "characters": [{} for _ in range(101)]}})
-        )
-        too_much_text = await self.routes_tools.handle_nai_document_apply(
-            Request(
-                {
-                    "document": {
-                        **valid,
-                        "tracks": [{"text": "x" * 2_000_001}],
-                    }
-                }
-            )
-        )
-
-        self.assertEqual(append_mode.status, 400)
-        self.assertEqual(too_many_tracks.status, 413)
-        self.assertEqual(too_many_characters.status, 413)
-        self.assertEqual(too_much_text.status, 413)
-        self.assertEqual(self.recorder.calls, [])
-
-    async def test_document_budget_counts_nested_keys_and_scalar_serialization(
-        self,
-    ) -> None:
-        base = {
-            "positive": "",
-            "negative": "",
-            "characters": [],
-        }
-        with patch.object(
-            self.routes_tools,
-            "MAX_NAI_EVENT_TEXT_CHARS",
-            64,
-        ):
-            oversized_key = await self.routes_tools.handle_nai_document_apply(
-                Request(
-                    {
-                        "document": {
-                            **base,
-                            "tracks": [{"custom": {"k" * 65: "x"}}],
-                        }
-                    }
-                )
-            )
-            oversized_scalar = await self.routes_tools.handle_nai_document_apply(
-                Request(
-                    {
-                        "document": {
-                            **base,
-                            "tracks": [{"custom": 10**100}],
-                        }
-                    }
-                )
-            )
-
-        self.assertEqual(oversized_key.status, 413)
-        self.assertEqual(oversized_scalar.status, 413)
-        self.assertEqual(self.recorder.calls, [])
-
-    async def test_document_budget_accepts_exact_serialized_scalar_boundary(
-        self,
-    ) -> None:
-        document = {
-            "tracks": [{"custom": 999}],
-            "positive": "",
-            "negative": "",
-            "characters": [],
-        }
-        event_payload = {
-            "document": document,
-            "mode": "replace",
-            "node_class": "NAI Prompt Scheduler (4A Prompt Manager)",
-            "target_mode": "nai",
-        }
-        budget = len(
-            json.dumps(
-                event_payload,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-        )
-
-        with patch.object(
-            self.routes_tools,
-            "MAX_NAI_EVENT_TEXT_CHARS",
-            budget,
-        ):
-            response = await self.routes_tools.handle_nai_document_apply(
-                Request({"document": document})
-            )
-
-        self.assertEqual(response.status, 200)
-        self.assertEqual(
-            self.recorder.calls,
-            [("pm4a_nai_document_update", event_payload)],
-        )
-
-    async def test_document_budget_rejects_excessive_depth_and_items(self) -> None:
-        nested = {"leaf": "x"}
-        for _ in range(40):
-            nested = {"child": nested}
-        base = {
-            "positive": "",
-            "negative": "",
-            "characters": [],
-        }
-
-        too_deep = await self.routes_tools.handle_nai_document_apply(
-            Request(
-                {
-                    "document": {
-                        **base,
-                        "tracks": [{"custom": nested}],
-                    }
-                }
-            )
-        )
-        too_many_items = await self.routes_tools.handle_nai_document_apply(
-            Request(
-                {
-                    "document": {
-                        **base,
-                        "tracks": [{"custom": [0] * 10_001}],
-                    }
-                }
-            )
-        )
-
-        self.assertEqual(too_deep.status, 413)
-        self.assertEqual(too_many_items.status, 413)
         self.assertEqual(self.recorder.calls, [])
 
     async def test_append_slot_rejects_oversized_node_id_string(self) -> None:

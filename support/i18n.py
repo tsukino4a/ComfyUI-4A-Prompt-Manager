@@ -47,8 +47,6 @@ _EN_MESSAGES = {
     "NovelAI 权重转换失败：{error}": "NovelAI weight conversion failed: {error}",
     "Anima 权重转换失败：{error}": "Anima weight conversion failed: {error}",
     "Anima 权重转换结果过大：{error}": "Anima weight conversion result is too large: {error}",
-    "读取 NAI 循环统计失败：{error}": "Failed to read NAI cycle counts: {error}",
-    "准备 NAI 批量运行失败：{error}": "Failed to prepare the NAI batch run: {error}",
     "读取提示词文件夹失败：{error}": "Failed to read prompt folder: {error}",
     "准备批量运行失败：{error}": "Failed to prepare batch run: {error}",
     "负面提示词为空，没有发送内容": "Negative prompt is empty; nothing was sent",
@@ -290,68 +288,6 @@ _EN_MESSAGES = {
     "{label}循环模式无效": "{label} has an invalid cycle mode",
     "{label} ID 不能为空": "{label} ID cannot be empty",
     "{label} ID 不能重复": "{label} IDs must be unique",
-    "NAI 循环节点配置无法解析：{error}": (
-        "Could not parse NAI scheduler configuration: {error}"
-    ),
-    "NAI 循环节点配置必须是对象": "NAI scheduler configuration must be an object",
-    "NAI 栏目配置必须是数组": "NAI track configuration must be an array",
-    "第 {index} 个 NAI 栏目配置无效": "NAI track configuration {index} is invalid",
-    "NAI 角色配置必须是数组": "NAI character configuration must be an array",
-    "第 {index} 个 NAI 栏目": "NAI track {index}",
-    "第 {index} 个 NAI 角色": "NAI character {index}",
-    "栏目": "Track",
-    "角色": "Character",
-    "起始位置": "Start index",
-    "任务数量": "Task count",
-    "固定负面提示词": "Fixed negative prompt",
-    "NAI 设置应用开关": "NAI settings apply toggle",
-    "{label}名称": "{label} name",
-    "{label}启用状态": "{label} enabled state",
-    "{label}提示词": "{label} prompt",
-    "{label}正面提示词": "{label} positive prompt",
-    "{label}负面提示词": "{label} negative prompt",
-    "{label}位置开关": "{label} position toggle",
-    "{label}横坐标": "{label} X",
-    "{label}纵坐标": "{label} Y",
-    "{label}顺序开关": "{label} order toggle",
-    "{label}循环模式": "{label} cycle mode",
-    "第 {index} 个 NAI 角色配置无效": (
-        "NAI character configuration {index} is invalid"
-    ),
-    "执行索引必须是整数": "Execution index must be an integer",
-    "本轮 NAI 提示词快照已失效，请重新准备批量运行": (
-        "This NAI prompt snapshot has expired; start the batch run again"
-    ),
-    "执行索引 {index} 未计划，不能用于本轮 NAI 批量运行": (
-        "Execution index {index} was not planned for this NAI batch run"
-    ),
-    "执行索引 {index} 已消费，不能重复执行": (
-        "Execution index {index} was already consumed and cannot run again"
-    ),
-    "连接动态 track 输入时不能使用 NAI 批量 run_id": (
-        "Connected dynamic track inputs cannot be used with an NAI batch run_id"
-    ),
-    "负面 companion 展开超过最大深度 {max_depth}": (
-        "Negative companion expansion exceeded max depth {max_depth}"
-    ),
-    "检测到负面 companion 循环引用 {key}": (
-        "Detected a negative companion cycle at {key}"
-    ),
-    "角色必须是对象": "Character must be an object",
-    "角色字段不完整或包含未知字段": (
-        "Character fields are incomplete or contain unknown keys"
-    ),
-    "角色 ID 必须是非空字符串": "Character ID must be a non-empty string",
-    "角色名称必须是字符串": "Character name must be a string",
-    "角色正面提示词必须是字符串": "Character positive prompt must be a string",
-    "角色负面提示词必须是字符串": "Character negative prompt must be a string",
-    "角色位置开关必须是布尔值": "Character position toggle must be a boolean",
-    "角色顺序开关必须是布尔值": "Character order toggle must be a boolean",
-    "角色横坐标": "Character X",
-    "角色纵坐标": "Character Y",
-    "PM4A NAI 角色必须是数组": "PM4A NAI characters must be an array",
-    "NAID_OPTION 必须是对象": "NAID_OPTION must be an object",
-    "NAID_OPTION.characters 必须是数组": "NAID_OPTION.characters must be an array",
     "nai 必须是对象{label}": "nai must be an object{label}",
     "nai.parameters 必须是对象{label}": "nai.parameters must be an object{label}",
     "{key} 必须是布尔值{label}": "{key} must be a boolean{label}",

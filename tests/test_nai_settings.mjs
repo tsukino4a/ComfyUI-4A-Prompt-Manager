@@ -9,15 +9,15 @@ const helpers = await import(moduleUrl);
 
 const {
   NAI_PARAMETER_FIELD_KEYS,
+  NAI_SIZE_FIELD_KEYS,
   browserModeVisibility,
-  buildNaiDocument,
   buildNaiSlotRequest,
-  cloneNaiSettings,
   conversionEndpointForMode,
   convertTextsForAction,
   emptyNaiSettings,
   fillNaiForm,
   flattenNovelAIForComfyMode,
+  naiApplyPayload,
   naiTextForComfyField,
   naiSavePatch,
   naiSettingsEqual,
@@ -28,10 +28,11 @@ const {
   rawTextForNaiSlot,
   readNaiForm,
   readObjectInfoChoices,
+  readSharedSizeFromForm,
   resolveEntryTextsForMode,
   setChoiceOptions,
+  sharedSizeFrom,
   shouldConvertDetail,
-  sourceResolutionFromParameters,
 } = helpers;
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -120,7 +121,7 @@ class FakeControl {
 
 function fakeForm() {
   const controls = new Map();
-  for (const key of NAI_PARAMETER_FIELD_KEYS) {
+  for (const key of [...NAI_PARAMETER_FIELD_KEYS, ...NAI_SIZE_FIELD_KEYS]) {
     const tag = ["sampler", "scheduler"].includes(key)
       ? "SELECT"
       : "INPUT";
@@ -141,9 +142,8 @@ test("NAI schema is exact, sparse, and has no defaults", () => {
     "sampler",
     "scheduler",
     "cfg_rescale",
-    "width",
-    "height",
   ]);
+  assert.deepEqual([...NAI_SIZE_FIELD_KEYS], ["width", "height"]);
   assert.deepEqual(plain(emptyNaiSettings()), {});
   assert.deepEqual(plain(normalizeNaiSettings({
     model: " ",
@@ -199,8 +199,6 @@ test("normalizer keeps nai content, negative, characters, and the allowed parame
       sampler: "k_euler",
       scheduler: "native",
       cfg_rescale: 0,
-      width: 832,
-      height: 1216,
     },
     characters: [{
       positive: "hero",
@@ -231,28 +229,12 @@ test("blank nai content and negative are omitted", () => {
   })), {});
 });
 
-test("Comfy card dimensions become a complete source ratio only", () => {
-  assert.deepEqual(
-    plain(sourceResolutionFromParameters({ width: 832, height: 1216, steps: 23 })),
-    { width: 832, height: 1216 },
-  );
-  assert.equal(sourceResolutionFromParameters({ width: 832 }), null);
-  assert.equal(sourceResolutionFromParameters({ width: 0, height: 1216 }), null);
-});
-
-test("clone and equality canonicalize allowed fields without aliasing", () => {
+test("equality canonicalize allowed fields without aliasing", () => {
   const sourceValue = {
     content: "nai positive",
     parameters: { steps: 28, cfg_rescale: 0 },
     characters: [{ positive: "hero", x: 0.25, y: 0.75 }],
   };
-  const cloned = cloneNaiSettings(sourceValue);
-  cloned.parameters.steps = 30;
-  cloned.characters[0].positive = "mutated";
-  cloned.content = "mutated content";
-  assert.equal(sourceValue.parameters.steps, 28);
-  assert.equal(sourceValue.characters[0].positive, "hero");
-  assert.equal(sourceValue.content, "nai positive");
   assert.equal(naiSettingsEqual(
     sourceValue,
     {
@@ -261,7 +243,10 @@ test("clone and equality canonicalize allowed fields without aliasing", () => {
       characters: [{ positive: "hero", negative: "", x: 0.25, y: 0.75 }],
     },
   ), true);
-  assert.equal(naiSettingsEqual(sourceValue, cloned), false);
+  assert.equal(naiSettingsEqual(sourceValue, {
+    ...sourceValue,
+    parameters: { ...sourceValue.parameters, steps: 30 },
+  }), false);
 });
 
 test("form helpers keep every control blank and round-trip the allowed fields", () => {
@@ -285,6 +270,54 @@ test("form helpers keep every control blank and round-trip the allowed fields", 
   assert.deepEqual(plain(readNaiForm(form)), {
     parameters: { sampler: "k_euler", scheduler: "karras" },
   });
+});
+
+test("width and height stay on the shared Comfy parameters, not nai.parameters", () => {
+  assert.deepEqual(plain(sharedSizeFrom(
+    { width: 1024, height: 1536, steps: 20 },
+    { parameters: { width: 832, height: 1216, steps: 28 } },
+  )), {
+    width: 1024,
+    height: 1536,
+  });
+  assert.deepEqual(plain(sharedSizeFrom(
+    {},
+    { parameters: { width: "832.8", height: 1216 } },
+  )), {
+    width: 832,
+    height: 1216,
+  });
+  assert.deepEqual(plain(normalizeNaiSettings({
+    parameters: { width: 832, height: 1216, steps: 28 },
+  })), {
+    parameters: { steps: 28 },
+  });
+  assert.deepEqual(plain(naiApplyPayload(
+    { parameters: { steps: 28 } },
+    { width: 832, height: 1216 },
+  )), {
+    parameters: { steps: 28, width: 832, height: 1216 },
+  });
+
+  const form = fakeForm();
+  fillNaiForm(form, {
+    parameters: { steps: 28, width: 832, height: 1216 },
+  }, {
+    width: 1024,
+    height: 1536,
+  });
+  assert.equal(form.querySelector('[data-nai-param="steps"]').value, "28");
+  assert.equal(form.querySelector('[data-nai-param="width"]').value, "1024");
+  assert.equal(form.querySelector('[data-nai-param="height"]').value, "1536");
+  assert.deepEqual(plain(readNaiForm(form)), { parameters: { steps: 28 } });
+  assert.deepEqual(plain(readSharedSizeFromForm(form)), {
+    width: 1024,
+    height: 1536,
+  });
+  assert.deepEqual(plain(naiSavePatch(
+    { nai: { parameters: { steps: 28, width: 832 } } },
+    { parameters: { steps: 28 } },
+  )), {});
 });
 
 test("choice helpers retain blank, unique live choices, and a card-only value", () => {
@@ -481,60 +514,6 @@ test("NAI route payload builders prefer native mode text then field fallback", (
       content: "preview must not send",
     }, "scene", "append").body.value,
     "__styles/legacy__",
-  );
-  assert.deepEqual(plain(buildNaiDocument("(raw positive:1.2)", "raw negative")), {
-    tracks: [{
-      id: "positive",
-      name: "正面",
-      text: "(raw positive:1.2)",
-    }],
-    positive: "(raw positive:1.2)",
-    negative: "raw negative",
-    characters: [],
-  });
-  assert.deepEqual(
-    plain(buildNaiDocument("scene", "neg", [
-      { positive: "hero", x: 0.2, y: 0.8 },
-      { positive: "extra", negative: "bad", x: 0.6, y: 0.4 },
-    ])),
-    {
-      tracks: [{ id: "positive", name: "正面", text: "scene" }],
-      positive: "scene",
-      negative: "neg",
-      characters: [
-        {
-          id: "char-1",
-          name: "角色 1",
-          enabled: true,
-          positive: "hero",
-          negative: "",
-          mode: "sequence",
-          use_position: true,
-          x: 0.2,
-          y: 0.8,
-          use_order: true,
-        },
-        {
-          id: "char-2",
-          name: "角色 2",
-          enabled: true,
-          positive: "extra",
-          negative: "bad",
-          mode: "sequence",
-          use_position: true,
-          x: 0.6,
-          y: 0.4,
-          use_order: true,
-        },
-      ],
-    },
-  );
-  assert.deepEqual(
-    plain(buildNaiDocument("scene", "", [
-      { positive: "hero", x: 0.2, y: 0.8 },
-      { positive: "auto" },
-    ])).characters.map((character) => character.use_position),
-    [true, false],
   );
 });
 

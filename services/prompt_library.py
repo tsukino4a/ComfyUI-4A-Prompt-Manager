@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
 try:
-    from ..domain import nai_wildcard_syntax, wildcard_syntax
+    from ..domain import wildcard_syntax
     from ..integrations.comfyui.model_resolver import (
         align_models_list,
         remap_lora_payload,
@@ -40,6 +40,7 @@ try:
         empty_parameters_payload,
         nai_from_document,
         card_has_positive_prompt,
+        copy_nai_payload,
         normalize_double_sample_payload,
         normalize_lora_payload,
         normalize_models_payload,
@@ -66,7 +67,6 @@ try:
         normalize_key,
     )
 except ImportError:  # standalone preview
-    from domain import nai_wildcard_syntax  # type: ignore
     from domain import wildcard_syntax  # type: ignore
     from integrations.comfyui.model_resolver import (  # type: ignore
         align_models_list,
@@ -94,6 +94,7 @@ except ImportError:  # standalone preview
         empty_parameters_payload,
         nai_from_document,
         card_has_positive_prompt,
+        copy_nai_payload,
         normalize_double_sample_payload,
         normalize_lora_payload,
         normalize_models_payload,
@@ -181,7 +182,7 @@ def _copy_settings(value: Optional[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _copy_nai(value: Any) -> dict[str, Any]:
-    return nai_wildcard_syntax.copy_nai_payload(value)
+    return copy_nai_payload(value)
 
 
 def _normalize_card_settings(

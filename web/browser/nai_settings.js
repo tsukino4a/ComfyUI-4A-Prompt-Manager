@@ -8,11 +8,11 @@ export const NAI_PARAMETER_FIELD_KEYS = Object.freeze([
   "sampler",
   "scheduler",
   "cfg_rescale",
-  "width",
-  "height",
 ]);
 
-const NAI_INTEGER_FIELDS = new Set(["steps", "width", "height"]);
+export const NAI_SIZE_FIELD_KEYS = Object.freeze(["width", "height"]);
+
+const NAI_INTEGER_FIELDS = new Set(["steps"]);
 const NAI_STRING_FIELDS = new Set(["sampler", "scheduler"]);
 
 export function emptyNaiSettings() {
@@ -48,13 +48,6 @@ export function flattenNovelAIForComfyMode(documentData, texts = {}) {
     positive: appendNaiCharacterLines(positive, documentData.characters, "positive"),
     negative: appendNaiCharacterLines(negative, documentData.characters, "negative"),
   };
-}
-
-function normalizedBoolean(value) {
-  if (value === true || value === false) return value;
-  if (value === "true") return true;
-  if (value === "false") return false;
-  return undefined;
 }
 
 function normalizedNumber(value, integer) {
@@ -101,19 +94,61 @@ export function normalizeNaiSettings(value) {
   return result;
 }
 
-export function cloneNaiSettings(value) {
-  const normalized = normalizeNaiSettings(value);
-  return {
-    ...normalized,
-    ...(normalized.parameters ? { parameters: { ...normalized.parameters } } : {}),
-    ...(normalized.characters
-      ? { characters: normalized.characters.map((character) => ({ ...character })) }
-      : {}),
-  };
-}
-
 export function naiSettingsEqual(left, right) {
   return JSON.stringify(normalizeNaiSettings(left)) === JSON.stringify(normalizeNaiSettings(right));
+}
+
+function sizeSource(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+export function sharedSizeFrom(parameters = {}, nai = {}) {
+  const shared = sizeSource(parameters);
+  const fallback = sizeSource(sizeSource(nai).parameters);
+  const result = {};
+  for (const key of NAI_SIZE_FIELD_KEYS) {
+    const number = normalizedNumber(shared[key] ?? fallback[key], true);
+    if (number !== undefined) result[key] = number;
+  }
+  return result;
+}
+
+export function readSharedSizeFromForm(root, attr = "data-nai-param") {
+  if (!root) return {};
+  const source = {};
+  for (const key of NAI_SIZE_FIELD_KEYS) {
+    const control = root.querySelector?.(`[${attr}="${key}"]`);
+    if (!control) continue;
+    source[key] = control.value;
+  }
+  return sharedSizeFrom(source, {});
+}
+
+export function fillSharedSizeOnForm(root, size = {}, attr = "data-nai-param") {
+  if (!root) return;
+  const normalized = sharedSizeFrom(size, {});
+  for (const key of NAI_SIZE_FIELD_KEYS) {
+    setFormControlValue(root.querySelector?.(`[${attr}="${key}"]`), normalized[key]);
+  }
+}
+
+export function copySharedSize(fromRoot, fromAttr, toRoot, toAttr) {
+  if (!fromRoot || !toRoot) return;
+  for (const key of NAI_SIZE_FIELD_KEYS) {
+    const from = fromRoot.querySelector?.(`[${fromAttr}="${key}"]`);
+    const to = toRoot.querySelector?.(`[${toAttr}="${key}"]`);
+    if (from && to) to.value = from.value;
+  }
+}
+
+export function naiApplyPayload(nai, size = {}) {
+  const normalized = normalizeNaiSettings(nai);
+  const resolved = sharedSizeFrom(size, nai);
+  if (!Object.keys(resolved).length) return normalized;
+  return {
+    ...normalized,
+    parameters: { ...normalized.parameters, ...resolved },
+  };
 }
 
 function formControl(root, key) {
@@ -150,22 +185,13 @@ export function readNaiForm(root) {
   return normalizeNaiSettings(source);
 }
 
-export function fillNaiForm(root, value = {}) {
+export function fillNaiForm(root, value = {}, sharedParameters = {}) {
   if (!root) return;
   const normalized = normalizeNaiSettings(value);
   for (const key of NAI_PARAMETER_FIELD_KEYS) {
     setFormControlValue(formControl(root, key), normalized.parameters?.[key]);
   }
-}
-
-export function sourceResolutionFromParameters(parameters) {
-  if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) return null;
-  const width = Number(parameters.width);
-  const height = Number(parameters.height);
-  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
-    return null;
-  }
-  return { width: Math.trunc(width), height: Math.trunc(height) };
+  fillSharedSizeOnForm(root, sharedSizeFrom(sharedParameters, value));
 }
 
 export function setChoiceOptions(control, choices, currentValue = "", documentLike) {
@@ -279,31 +305,6 @@ export function buildNaiSlotRequest(
         : String(value),
       mode: mode === "replace" ? "replace" : "append",
     },
-  };
-}
-
-export function buildNaiDocument(rawContent, rawNegative, rawCharacters = []) {
-  const positive = String(rawContent ?? "");
-  const negative = String(rawNegative ?? "");
-  const characters = normalizeNaiCharacters(rawCharacters).map((character, index) => {
-    const positioned = Number.isFinite(character.x) && Number.isFinite(character.y);
-    return {
-      id: `char-${index + 1}`,
-      name: `角色 ${index + 1}`,
-      enabled: true,
-      positive: character.positive,
-      negative: character.negative,
-      mode: "sequence",
-      use_position: positioned,
-      ...(positioned ? { x: character.x, y: character.y } : {}),
-      use_order: true,
-    };
-  });
-  return {
-    tracks: [{ id: "positive", name: "正面", text: positive }],
-    positive,
-    negative,
-    characters,
   };
 }
 
@@ -432,47 +433,20 @@ export async function resolveEntryTextsForMode(
   fields = ["content", "negative"],
 ) {
   const normalizedMode = normalizeBrowserMode(mode);
-  if (entry?.format !== "json_card" || entry?.type === "folder") {
-    return {
-      texts: fields.map((field) => String(entry?.[field] || "")),
-      error: null,
-      converted: false,
-    };
-  }
-  const result = fields.map((field) => nativeEntryText(entry, normalizedMode, field));
-  const fallbackIndexes = [];
-  const fallbackTexts = [];
-  fields.forEach((field, index) => {
-    if (result[index].trim()) return;
-    const fallback = fallbackEntryText(entry, normalizedMode, field);
-    if (!fallback.trim()) return;
-    fallbackIndexes.push(index);
-    fallbackTexts.push(fallback);
+  const texts = fields.map((field) => {
+    const native = nativeEntryText(entry, normalizedMode, field);
+    return native.trim() ? native : fallbackEntryText(entry, normalizedMode, field);
   });
-  if (!fallbackTexts.length) {
-    return { texts: result, error: null, converted: false };
-  }
-  try {
-    const data = await request(conversionEndpointForMode(normalizedMode), {
-      method: "POST",
-      body: JSON.stringify({ texts: fallbackTexts }),
-    });
-    if (!Array.isArray(data?.results) || data.results.length !== fallbackTexts.length) {
-      throw new Error("invalid conversion result");
-    }
-    data.results.forEach((item, index) => {
-      if (!item || typeof item.text !== "string") throw new Error("invalid conversion result");
-      result[fallbackIndexes[index]] = item.text;
-    });
-    return { texts: result, error: null, converted: true };
-  } catch (error) {
-    fallbackIndexes.forEach((targetIndex, index) => {
-      result[targetIndex] = fallbackTexts[index];
-    });
-    return {
-      texts: result,
-      error: error instanceof Error ? error : new Error(String(error)),
-      converted: false,
-    };
-  }
+  const result = await convertTextsForAction(
+    request,
+    normalizedMode,
+    texts,
+    entry,
+    fields,
+  );
+  return {
+    texts: result.texts,
+    error: result.error,
+    converted: Boolean(!result.skipped && !result.error),
+  };
 }

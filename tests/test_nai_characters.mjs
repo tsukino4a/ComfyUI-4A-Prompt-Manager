@@ -8,7 +8,6 @@ const moduleUrl = pathToFileURL(path.join(root, "web", "browser", "nai_character
 const {
   evenlyDistributedCharacterPositions,
   naiCharacterPromptHeight,
-  naiCharactersUsePositions,
   normalizeNaiCharacters,
 } = await import(moduleUrl);
 
@@ -58,9 +57,6 @@ test("automatic position omits x/y even when coordinates are present", () => {
     { positive: "a", negative: "" },
     { positive: "b", negative: "" },
   ]);
-  assert.equal(naiCharactersUsePositions([
-    { positive: "a", x: 0.1, y: 0.9, use_position: false },
-  ]), false);
 });
 
 test("complete x/y pairs are clamped to 0..1", () => {
@@ -92,14 +88,6 @@ test("incomplete coordinates are dropped; complete pairs stay sparse per charact
     { positive: "placed", negative: "", x: 0.2, y: 0.8 },
     { positive: "auto", negative: "" },
   ]);
-  assert.equal(naiCharactersUsePositions([
-    { positive: "placed", x: 0.2, y: 0.8 },
-    { positive: "auto" },
-  ]), false);
-  assert.equal(naiCharactersUsePositions([
-    { positive: "a", x: 0.2, y: 0.8 },
-    { positive: "b", x: 0.7, y: 0.1 },
-  ]), true);
 });
 
 test("evenlyDistributedCharacterPositions fills a clamped grid", () => {

@@ -8,12 +8,14 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 try:
-    from ..domain import nai_to_anima, nai_wildcard_syntax, wildcard_syntax
-    from ..storage.prompt_documents import normalize_nai_payload
+    from ..domain import nai_to_anima, wildcard_syntax
+    from ..storage.prompt_documents import copy_nai_payload, normalize_nai_payload
 except ImportError:  # standalone preview
-    from domain import nai_to_anima, nai_wildcard_syntax  # type: ignore
-    from domain import wildcard_syntax  # type: ignore
-    from storage.prompt_documents import normalize_nai_payload  # type: ignore
+    from domain import nai_to_anima, wildcard_syntax  # type: ignore
+    from storage.prompt_documents import (  # type: ignore
+        copy_nai_payload,
+        normalize_nai_payload,
+    )
 
 
 _ROOT_WILDCARD_KEY = "*"
@@ -170,7 +172,7 @@ class LibraryWildcardResolver:
                         )
                         or {}
                     ),
-                    nai=nai_wildcard_syntax.copy_nai_payload(nai.get(key)),
+                    nai=copy_nai_payload(nai.get(key)),
                 )
                 for content in options
             )

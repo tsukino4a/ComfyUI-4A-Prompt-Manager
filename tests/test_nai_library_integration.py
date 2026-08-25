@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from domain import nai_wildcard_syntax, wildcard_syntax
+from domain import wildcard_syntax
+from storage.prompt_documents import copy_nai_payload
 from server import routes_library
 from services import prompt_library
 from services.wildcard_expansion import LibraryWildcardResolver
@@ -29,7 +30,7 @@ FULL_NAI = {
 
 
 class NaiResolverIntegrationTests(unittest.TestCase):
-    def test_nai_parser_imports_as_real_package_submodule(self) -> None:
+    def test_nai_payload_copy_imports_as_real_package_submodule(self) -> None:
         root = Path(__file__).resolve().parents[1]
         script = """
 import importlib
@@ -42,12 +43,21 @@ package_name = "_pm4a_package_smoke"
 package = types.ModuleType(package_name)
 package.__path__ = [str(root)]
 sys.modules[package_name] = package
-domain_name = package_name + ".domain"
-domain_package = types.ModuleType(domain_name)
-domain_package.__path__ = [str(root / "domain")]
-sys.modules[domain_name] = domain_package
-module = importlib.import_module(domain_name + ".nai_wildcard_syntax")
-assert module.reference_keys("__card__") == ("card",)
+storage_name = package_name + ".storage"
+storage_package = types.ModuleType(storage_name)
+storage_package.__path__ = [str(root / "storage")]
+sys.modules[storage_name] = storage_package
+support_name = package_name + ".support"
+support_package = types.ModuleType(support_name)
+support_package.__path__ = [str(root / "support")]
+sys.modules[support_name] = support_package
+module = importlib.import_module(storage_name + ".prompt_documents")
+copied = module.copy_nai_payload({
+    "content": "keep",
+    "model": "drop",
+    "parameters": {"steps": 28, "seed": 1},
+})
+assert copied == {"content": "keep", "parameters": {"steps": 28}}
 """
         with tempfile.TemporaryDirectory() as isolated_cwd:
             completed = subprocess.run(
@@ -79,7 +89,7 @@ assert module.reference_keys("__card__") == ("card",)
         self.assertIs(resolver.folder_candidate_dict, folder_candidates)
         self.assertEqual(resolver.nai_dict, {})
 
-    def test_resolver_snapshots_normalized_nai_and_nai_expand_merges_it(self) -> None:
+    def test_resolver_snapshots_whitelisted_nai_without_aliasing(self) -> None:
         source_nai = {
             "outer": {
                 "model": " nai-diffusion-4-5-full ",
@@ -107,14 +117,24 @@ assert module.reference_keys("__card__") == ("card",)
         source_nai["outer"]["model"] = "mutated"
         source_nai["outer"]["parameters"]["sampler"] = "mutated"
         outer = resolver.resolve("outer")[0]
+        inner = resolver.resolve("inner")[0]
         self.assertEqual(
             outer.nai,
             {
                 "parameters": {"sampler": "k_euler", "steps": 28},
             },
         )
+        self.assertEqual(
+            inner.nai,
+            {
+                "parameters": {"scheduler": "native", "steps": 30, "cfg": 5.0},
+            },
+        )
+        self.assertNotIn("model", outer.nai)
+        self.assertNotIn("reference", outer.nai)
+        self.assertNotIn("network", outer.nai)
 
-        result = nai_wildcard_syntax.expand(
+        result = wildcard_syntax.expand(
             "__outer__",
             resolver,
             wildcard_syntax.ExpansionContext(seed=1),
@@ -122,22 +142,9 @@ assert module.reference_keys("__card__") == ("card",)
         self.assertEqual(result.text, "done")
         self.assertEqual(result.negatives, ("neg",))
         self.assertEqual(result.parameters, {"seed": 7, "steps": 25})
-        self.assertEqual(
-            result.nai,
-            {
-                "parameters": {
-                    "sampler": "k_euler",
-                    "steps": 28,
-                    "scheduler": "native",
-                    "cfg": 5.0,
-                },
-            },
-        )
-        self.assertNotIn("model", result.nai)
-        self.assertNotIn("reference", result.nai)
-        self.assertNotIn("network", result.nai)
+        self.assertEqual(result.nai, {})
 
-    def test_resolver_copy_merge_keeps_nai_content_and_appends_characters(self) -> None:
+    def test_resolver_copy_keeps_nai_content_and_characters(self) -> None:
         source_nai = {
             "outer": {
                 "content": "outer nai",
@@ -161,30 +168,20 @@ assert module.reference_keys("__card__") == ("card",)
         source_nai["outer"]["content"] = "mutated"
         source_nai["outer"]["characters"][0]["positive"] = "mutated"
         outer = resolver.resolve("outer")[0]
+        inner = resolver.resolve("inner")[0]
         self.assertEqual(outer.nai["content"], "outer nai")
         self.assertEqual(outer.nai["characters"][0]["positive"], "outer-char")
-
-        result = nai_wildcard_syntax.expand(
-            "__outer__",
-            resolver,
-            wildcard_syntax.ExpansionContext(seed=1),
+        self.assertEqual(
+            inner.nai,
+            {
+                "content": "inner nai",
+                "characters": [{"positive": "inner-char", "x": 0.3, "y": 0.7}],
+                "parameters": {"scheduler": "native", "steps": 30, "cfg": 5.0},
+            },
         )
         self.assertEqual(
-            result.nai,
-            {
-                "content": "outer nai",
-                "negative": "outer neg",
-                "characters": [
-                    {"positive": "outer-char"},
-                    {"positive": "inner-char", "x": 0.3, "y": 0.7},
-                ],
-                "parameters": {
-                    "sampler": "k_euler",
-                    "steps": 28,
-                    "scheduler": "native",
-                    "cfg": 5.0,
-                },
-            },
+            copy_nai_payload(source_nai["outer"])["content"],
+            "mutated",
         )
 
     def test_legacy_resolver_call_and_impact_expand_keep_empty_nai(self) -> None:

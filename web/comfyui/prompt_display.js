@@ -20,6 +20,7 @@ import {
   imageFileFromTransfer,
   looksLikeImageFile,
 } from "/pm4a/static/image_drop.js";
+import { appendNaiCharacterLines } from "/pm4a/static/nai_settings.js";
 import { configureComfyI18n, t } from "./i18n.js";
 import {
   TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY,
@@ -80,15 +81,8 @@ export function flattenNovelAIForPromptDisplay(payload) {
     return payload;
   }
 
-  const appendCharacters = (base, key) => [
-    String(base || "").trim(),
-    ...payload.characters.map((character, index) => {
-      const text = typeof character?.[key] === "string" ? character[key].trim() : "";
-      return text ? `char${index + 1}: ${text}` : "";
-    }),
-  ].filter(Boolean).join("\n");
-  const positive = appendCharacters(payload.positive, "positive");
-  const negative = appendCharacters(payload.negative, "negative");
+  const positive = appendNaiCharacterLines(payload.positive, payload.characters, "positive");
+  const negative = appendNaiCharacterLines(payload.negative, payload.characters, "negative");
   const tracks = Array.isArray(payload.tracks)
     ? payload.tracks.map((track) => ({ ...track }))
     : [];

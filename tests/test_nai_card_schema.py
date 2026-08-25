@@ -12,6 +12,7 @@ from storage.prompt_documents import (
     _read_json_prompt,
     _write_json_prompt,
     card_has_positive_prompt,
+    copy_nai_payload,
     empty_nai_payload,
     nai_from_document,
     normalize_nai_payload,
@@ -155,6 +156,58 @@ class NormalizeNaiPayloadTests(unittest.TestCase):
             self.assertRegex(str(exc), "steps 必须是有效数字")
         else:
             self.fail("huge integer must be rejected")
+
+
+class CopyNaiPayloadTests(unittest.TestCase):
+    def test_copy_keeps_content_negative_characters_and_drops_unknown(self) -> None:
+        original = {
+            "content": "nai positive",
+            "negative": "nai negative",
+            "model": "drop",
+            "characters": [
+                {
+                    "id": "c1",
+                    "name": "Hero",
+                    "enabled": True,
+                    "use_coords": True,
+                    "positive": "hero",
+                    "negative": "bad",
+                    "x": 0.0,
+                    "y": 1.0,
+                },
+                {"positive": "sidekick"},
+            ],
+            "parameters": {"steps": 28, "seed": 99, "width": 832},
+        }
+        copied = copy_nai_payload(original)
+        self.assertEqual(
+            copied,
+            {
+                "content": "nai positive",
+                "negative": "nai negative",
+                "characters": [
+                    {
+                        "positive": "hero",
+                        "negative": "bad",
+                        "x": 0.0,
+                        "y": 1.0,
+                    },
+                    {"positive": "sidekick"},
+                ],
+                "parameters": {"steps": 28, "width": 832},
+            },
+        )
+        copied["content"] = "mutated"
+        copied["characters"][0]["positive"] = "mutated"
+        copied["parameters"]["steps"] = 1
+        self.assertEqual(original["content"], "nai positive")
+        self.assertEqual(original["characters"][0]["positive"], "hero")
+        self.assertEqual(original["parameters"]["steps"], 28)
+
+    def test_copy_empty_and_non_object_values(self) -> None:
+        self.assertEqual(copy_nai_payload(None), {})
+        self.assertEqual(copy_nai_payload([]), {})
+        self.assertEqual(copy_nai_payload({}), {})
 
 
 class NaiDocumentHelperTests(unittest.TestCase):

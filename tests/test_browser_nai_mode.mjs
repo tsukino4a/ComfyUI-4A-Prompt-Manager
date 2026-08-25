@@ -94,7 +94,7 @@ test("detail DOM keeps Comfy controls and adds an isolated sparse NAI panel", ()
   assert.equal((html.match(/data-nai-model/g) || []).length, 0);
   assert.deepEqual(
     naiParamKeys(htmlSection("detail-nai-settings-form", "detail-nai-characters")),
-    [...helpers.NAI_PARAMETER_FIELD_KEYS],
+    [...helpers.NAI_PARAMETER_FIELD_KEYS, ...helpers.NAI_SIZE_FIELD_KEYS],
   );
   assert.match(
     htmlSection("detail-nai-settings-form", "detail-nai-characters"),
@@ -134,7 +134,7 @@ test("add-prompt modal has a matching NAI panel, parameters, and character edito
   );
   assert.deepEqual(
     naiParamKeys(htmlSection("add-nai-settings-form", "add-nai-characters")),
-    [...helpers.NAI_PARAMETER_FIELD_KEYS],
+    [...helpers.NAI_PARAMETER_FIELD_KEYS, ...helpers.NAI_SIZE_FIELD_KEYS],
   );
   assert.match(
     htmlSection("add-nai-settings-form", "add-nai-characters"),
@@ -196,6 +196,23 @@ test("app loads optional upstream choices lazily after NAI becomes relevant", ()
   assert.match(app, /if \(next === "nai"\) void ensureNaiSettingsOptions\(\)/);
 });
 
+test("NAI detail width and height mirror the shared Comfy parameters", () => {
+  const renderStart = app.indexOf("function renderInspectorEntry(");
+  const renderEnd = app.indexOf("async function openSelectedTxt(", renderStart);
+  const renderSource = app.slice(renderStart, renderEnd);
+  assert.match(renderSource, /applySettingsDraftToDetail\(/);
+  assert.match(app, /function applySharedSize\(/);
+  assert.match(app, /function syncSharedSize\(/);
+  assert.match(app, /storedCardSettings\(/);
+  assert.deepEqual(
+    helpers.sharedSizeFrom(
+      { width: 1024, height: 1536 },
+      { parameters: { width: 832, height: 1216 } },
+    ),
+    { width: 1024, height: 1536 },
+  );
+});
+
 test("Comfy send path remains the legacy key route while converted actions use text", () => {
   assert.match(app, /async function sendByKey\(/);
   assert.match(app, /state\.browserMode === "nai"/);
@@ -230,6 +247,7 @@ test("NAI create payload stores native drafts under nai instead of Comfy content
     /content:\s*\$\("add-prompt-content"\)\.value[\s\S]*negative:\s*\$\("add-prompt-negative"\)\.value[\s\S]*characters:\s*state\.createNaiCharactersEditor/,
   );
   assert.match(app, /const nai = naiMode \? readCreateNaiDraft\(\) : \{\}/);
+  assert.match(app, /parameters: readSharedSizeFromForm\(\$\("add-nai-settings-form"\)\)/);
   assert.match(app, /content: naiMode \? "" : content/);
   assert.match(app, /negative: naiMode \? "" : negative/);
   assert.match(app, /\.\.\.\(Object\.keys\(nai\)\.length \? \{ nai \} : \{\}\)/);
@@ -300,34 +318,15 @@ test("rendering a new entry cannot copy the previous textarea into its draft", (
 
 test("NAI settings send stays on the negative-row parameter button", () => {
   assert.match(app, /"\/pm4a\/api\/nai\/settings\/apply"/);
-  assert.match(app, /JSON\.stringify\(body\)/);
+  assert.match(app, /JSON\.stringify\(\{ nai \}\)/);
   assert.match(app, /async function sendNaiSettings\(/);
+  assert.match(app, /naiApplyPayload\(/);
+  assert.match(app, /sharedSizeFrom\(/);
   assert.match(app, /data-nai-apply/);
   assert.doesNotMatch(app, /async function sendNaiDocument\(/);
   assert.doesNotMatch(app, /"\/pm4a\/api\/nai\/document\/apply"/);
   assert.doesNotMatch(html, /发送整套/);
-  assert.deepEqual(
-    helpers.buildNaiDocument("raw positive", "raw negative", [
-      { positive: "hero", x: 0.2, y: 0.8 },
-    ]),
-    {
-      tracks: [{ id: "positive", name: "正面", text: "raw positive" }],
-      positive: "raw positive",
-      negative: "raw negative",
-      characters: [{
-        id: "char-1",
-        name: "角色 1",
-        enabled: true,
-        positive: "hero",
-        negative: "",
-        mode: "sequence",
-        use_position: true,
-        x: 0.2,
-        y: 0.8,
-        use_order: true,
-      }],
-    },
-  );
+  assert.equal(typeof helpers.buildNaiDocument, "undefined");
 });
 
 test("save stores sparse nai only when changed and never calls display conversion", () => {

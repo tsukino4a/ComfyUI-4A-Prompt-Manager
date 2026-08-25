@@ -74,6 +74,54 @@ def empty_nai_payload() -> dict[str, Any]:
     return {}
 
 
+def copy_nai_payload(value: Any) -> dict[str, Any]:
+    """Copy one sparse NAI payload while enforcing its public whitelist."""
+    if not isinstance(value, dict) or not value:
+        return empty_nai_payload()
+    copied: dict[str, Any] = {}
+    content = value.get("content")
+    if isinstance(content, str) and content:
+        copied["content"] = content
+    negative = value.get("negative")
+    if isinstance(negative, str) and negative:
+        copied["negative"] = negative
+    characters_raw = value.get("characters")
+    if isinstance(characters_raw, list):
+        characters: list[dict[str, Any]] = []
+        for entry in characters_raw:
+            character = _copy_nai_character(entry)
+            if character:
+                characters.append(character)
+        if characters:
+            copied["characters"] = characters
+    parameters_raw = value.get("parameters")
+    if isinstance(parameters_raw, dict):
+        parameters = {
+            key: raw
+            for key, raw in parameters_raw.items()
+            if key in NAI_PARAMETER_KEYS
+        }
+        if parameters:
+            copied["parameters"] = parameters
+    return copied
+
+
+def _copy_nai_character(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    copied: dict[str, Any] = {}
+    positive = value.get("positive")
+    if isinstance(positive, str) and positive:
+        copied["positive"] = positive
+    negative = value.get("negative")
+    if isinstance(negative, str) and negative:
+        copied["negative"] = negative
+    if "x" in value and "y" in value:
+        copied["x"] = value["x"]
+        copied["y"] = value["y"]
+    return copied
+
+
 def empty_card_settings() -> dict[str, Any]:
     return {
         "models": empty_models_payload(),
