@@ -1,6 +1,6 @@
 [project]
 name = "4a-prompt-manager"
-version = "1.4.0"
+version = "1.4.1"
 description = "Folder-backed prompt library and multi-track scheduler for ComfyUI, plus optional NovelAI (NAI) nodes. Browse/edit wildcards and JSON cards with LoRAs, sparse generation settings, and sparse nai fields; auto-apply models/params and embed wildcard LoRAs per queue job; NAI serial batch with resume; reuse image metadata; save with A1111-style parameters."
 readme = "README.md"
 license = { file = "LICENSE" }

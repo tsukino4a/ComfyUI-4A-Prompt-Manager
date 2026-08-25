@@ -26,6 +26,7 @@ try:
     from ..support.i18n import tr
     from . import prompt_library
     from .wildcard_expansion import (
+        EMPTY_RESOLVER,
         LibraryWildcardResolver,
         expand_prompt,
         normalize_key,
@@ -45,6 +46,7 @@ except ImportError:  # standalone preview
     from support.i18n import tr  # type: ignore
     from services import prompt_library  # type: ignore
     from services.wildcard_expansion import (  # type: ignore
+        EMPTY_RESOLVER,
         LibraryWildcardResolver,
         expand_prompt,
         normalize_key,
@@ -140,6 +142,13 @@ def wildcard_keys(text: str) -> list[str]:
             if key.strip()
         )
     )
+
+
+def resolver_for_texts(texts: Iterable[str]) -> LibraryWildcardResolver:
+    """Snapshot the library only when a text actually contains ``__key__``."""
+    if any(wildcard_keys(text) for text in texts):
+        return prompt_library.snapshot_resolver()
+    return EMPTY_RESOLVER
 
 
 def sequential_wildcard_keys(text: str) -> list[str]:
@@ -445,7 +454,12 @@ def prepare_run(
     except (TypeError, ValueError) as exc:
         raise ValueError(tr("选择种子必须是整数")) from exc
 
-    resolver = prompt_library.snapshot_resolver()
+    resolver = resolver_for_texts(
+        [
+            *(track["text"] for track in clean["tracks"] if track["enabled"]),
+            clean.get("negative") or "",
+        ]
+    )
     folders = [
         key
         for track in clean["tracks"]

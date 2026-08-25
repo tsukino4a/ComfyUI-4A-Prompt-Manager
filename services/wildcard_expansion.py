@@ -260,6 +260,19 @@ class LibraryWildcardResolver:
         return ()
 
 
+EMPTY_RESOLVER = LibraryWildcardResolver(
+    file_dict=MappingProxyType({}),
+    folder_entry_keys=MappingProxyType({}),
+    negative_dict=MappingProxyType({}),
+    display_paths=MappingProxyType({}),
+    lora_dict=MappingProxyType({}),
+    settings_dict=MappingProxyType({}),
+    candidate_dict=MappingProxyType({}),
+    folder_candidate_dict=MappingProxyType({}),
+    nai_dict=MappingProxyType({}),
+)
+
+
 def expand_prompt(
     text: str,
     *,

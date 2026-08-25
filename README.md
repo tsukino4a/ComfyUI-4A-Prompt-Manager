@@ -7,7 +7,12 @@ Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
-**Current release: 1.4.0**
+**Current release: 1.4.1**
+
+- Caches the Wildcard library snapshot so official Queue no longer rebuilds the whole library on every click; plain text skips the snapshot entirely
+- Remembers Browser folder, view, and send mode per workflow instead of sharing one global UI state
+
+**1.4.0**
 
 - Adds NovelAI (NAI) Browser mode, sparse `nai` card fields, NAI image metadata reading, and sending prompts/settings to external NAI nodes
 - Moves generation nodes into standalone `ComfyUI-4A-NovelAI`; Prompt Manager still works without that plugin

@@ -142,6 +142,7 @@ _nai_dict: dict[str, dict[str, Any]] = {}
 _folder_display_paths: dict[str, str] = {}
 _conflict_keys: tuple[str, ...] = ()
 _loaded_root: Optional[Path] = None
+_resolver_snapshot: Optional[LibraryWildcardResolver] = None
 _NAI_UNSET = object()
 
 ProgressCallback = Callable[[int, int, str], None]
@@ -298,6 +299,7 @@ def _publish_library_indexes(
         _folder_display_paths = folder_display_paths
         _conflict_keys = conflict_keys
         _loaded_root = root
+        _invalidate_resolver_snapshot()
 
 
 def _write_index_cache(
@@ -891,19 +893,32 @@ def ensure_loaded() -> None:
     reload()
 
 
+def _invalidate_resolver_snapshot() -> None:
+    """Drop the cached resolver. Call while holding ``_lock`` after index edits."""
+    global _resolver_snapshot
+    _resolver_snapshot = None
+
+
 def snapshot_resolver() -> LibraryWildcardResolver:
-    """Copy the complete in-memory library into an immutable resolver."""
+    """Return an immutable resolver for the current in-memory library.
+
+    ``from_indexes`` copies every card. Reuse the snapshot until the next
+    library mutation so official Queue does not rebuild it on every click.
+    """
     ensure_loaded()
     with _lock:
-        return LibraryWildcardResolver.from_indexes(
-            _file_dict,
-            tuple(_folder_dict),
-            _negative_dict,
-            _display_paths,
-            _lora_dict,
-            _settings_dict,
-            nai_dict=_nai_dict,
-        )
+        global _resolver_snapshot
+        if _resolver_snapshot is None:
+            _resolver_snapshot = LibraryWildcardResolver.from_indexes(
+                _file_dict,
+                tuple(_folder_dict),
+                _negative_dict,
+                _display_paths,
+                _lora_dict,
+                _settings_dict,
+                nai_dict=_nai_dict,
+            )
+        return _resolver_snapshot
 
 
 def expand_prompt(
@@ -972,6 +987,7 @@ def create_folder(parent: str, name: str) -> dict:
         display_path = f"{parent_display}/{folder_name}" if parent_display else folder_name
         _folder_dict[target_key] = []
         _folder_display_paths[target_key] = display_path
+        _invalidate_resolver_snapshot()
     return {
         "name": folder_name,
         "path": target_key,
@@ -1095,6 +1111,7 @@ def rename_folder(folder: str, name: str) -> dict:
         _nai_dict = updated_nai_dict
         _folder_dict = updated_folder_dict
         _folder_display_paths = updated_folder_display_paths
+        _invalidate_resolver_snapshot()
 
         try:
             metadata.apply_key_operations(
@@ -1192,6 +1209,7 @@ def create_entry(
             _folder_display_paths.setdefault(
                 ancestor_key, "/".join(display_parts[:index])
             )
+        _invalidate_resolver_snapshot()
 
     try:
         metadata.migrate_entry(
@@ -2300,6 +2318,7 @@ def operate_items(
         _nai_dict = next_nai_dict
         _folder_dict = next_folder_dict
         _folder_display_paths = next_folder_displays
+        _invalidate_resolver_snapshot()
 
         try:
             if progress_callback:
@@ -2678,6 +2697,7 @@ def _update_json_entry_locked(
         _folder_dict, _folder_display_paths = _rebuild_folder_indexes_from_known(
             _file_dict, _display_paths, known_folders
         )
+    _invalidate_resolver_snapshot()
 
     try:
         metadata.migrate_entry(
@@ -2893,6 +2913,7 @@ def update_entry(
             _folder_dict, _folder_display_paths = _rebuild_folder_indexes_from_known(
                 _file_dict, _display_paths, known_folders
             )
+        _invalidate_resolver_snapshot()
         try:
             metadata.migrate_entry(
                 root,

@@ -93,16 +93,16 @@ class PromptScheduler4A:
         config = scheduler.normalize_config(config_json)
         selection_seed = int(seed)
         acquired = False
+        resolver = None
         if run_id:
             resolver, selection_seed = scheduler.acquire_run(run_id, seed)
             acquired = True
-        else:
-            resolver = wc.snapshot_resolver()
 
         positive_parts: list[str] = []
         companion_negatives: list[str] = []
         resolved_tracks: list[dict[str, str]] = []
         try:
+            prepared_tracks: list[tuple[dict, str]] = []
             for track in config["tracks"]:
                 input_name = _external_track_input_name(track["id"])
                 # External sockets override only this execution; never write back
@@ -114,6 +114,30 @@ class PromptScheduler4A:
                         track_text = (
                             incoming if isinstance(incoming, str) else str(incoming)
                         )
+                prepared_tracks.append((track, track_text))
+
+            negative_input_name = _external_track_input_name("negative")
+            negative_text = config["negative"]
+            if negative_input_name in external_inputs:
+                incoming = external_inputs[negative_input_name]
+                if incoming is not None:
+                    negative_text = (
+                        incoming if isinstance(incoming, str) else str(incoming)
+                    )
+
+            if resolver is None:
+                resolver = scheduler.resolver_for_texts(
+                    [
+                        *(
+                            text
+                            for track, text in prepared_tracks
+                            if track["enabled"]
+                        ),
+                        negative_text,
+                    ]
+                )
+
+            for track, track_text in prepared_tracks:
                 if not track["enabled"]:
                     continue
                 expanded = wc.expand_prompt(
@@ -147,14 +171,6 @@ class PromptScheduler4A:
                         companion_negatives.append(negative_result.text)
                     companion_negatives.extend(negative_result.negatives)
 
-            negative_input_name = _external_track_input_name("negative")
-            negative_text = config["negative"]
-            if negative_input_name in external_inputs:
-                incoming = external_inputs[negative_input_name]
-                if incoming is not None:
-                    negative_text = (
-                        incoming if isinstance(incoming, str) else str(incoming)
-                    )
             fixed_negative_result = wc.expand_prompt(
                 negative_text,
                 seed=selection_seed,

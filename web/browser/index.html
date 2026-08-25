@@ -10,9 +10,13 @@
 <body>
   <script>
     try {
-      if (localStorage.getItem("pm4a_browser_sidebar_open") === "false") {
-        document.body.classList.add("sidebar-hidden");
-      }
+      var active = localStorage.getItem("pm4a_browser_active_key");
+      var store = JSON.parse(localStorage.getItem("pm4a_browser_by_workflow") || "{}");
+      var chrome = active && store && store[active];
+      var sidebarOpen = chrome
+        ? chrome.sidebarOpen !== false
+        : localStorage.getItem("pm4a_browser_sidebar_open") !== "false";
+      if (!sidebarOpen) document.body.classList.add("sidebar-hidden");
     } catch (_) {}
   </script>
   <header class="app-header">

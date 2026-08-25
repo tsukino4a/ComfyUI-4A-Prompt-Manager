@@ -72,6 +72,15 @@ import {
   setChoiceOptions,
   sharedSizeFrom,
 } from "./nai_settings.js";
+import {
+  SORT_MODES,
+  loadChromeState,
+  normalizeChromeState,
+  normalizeWorkflowKey,
+  readComfyWorkflowSource,
+  resolveWorkflowKey,
+  saveChromeState,
+} from "./browser_chrome_state.js";
 
 setLocale(readBrowserLocale());
 applyDocumentTranslations();
@@ -97,17 +106,6 @@ if (localeToggle) {
     globalThis.location.replace(reloadUrl);
   });
 }
-
-const STORAGE_KEYS = {
-  recursive: "pm4a_browser_recursive",
-  sidebarOpen: "pm4a_browser_sidebar_open",
-  viewMode: "pm4a_browser_view_mode",
-  browserMode: "pm4a_browser_mode",
-  sortMode: "pm4a_browser_sort_mode",
-  sendMode: "pm4a_browser_send_mode",
-  expanded: "pm4a_browser_expanded",
-  prefix: "pm4a_browser_prefix",
-};
 
 const SLOT_LABELS = {
   quality: t("质量"),
@@ -193,70 +191,119 @@ const MAX_BULK_IMPORT_PROMPTS = 20_000;
 const PROGRESS_POLL_INTERVAL_MS = 150;
 const numberFormatter = new Intl.NumberFormat(getLocale() === "en" ? "en-US" : "zh-CN");
 
-const SORT_MODES = new Set(["path:asc", "path:desc", "name:asc", "name:desc"]);
-
-function readStoredBoolean(key, fallback) {
+function comfyHostWindow() {
   try {
-    const value = localStorage.getItem(key);
-    if (value === null) return fallback;
-    return value === "true";
+    if (window.parent && window.parent !== window) return window.parent;
   } catch (_) {
-    return fallback;
+    /* ignore cross-origin parent */
   }
+  try {
+    if (window.opener && !window.opener.closed) return window.opener;
+  } catch (_) {
+    /* ignore closed or cross-origin opener */
+  }
+  return null;
 }
 
-function readStoredString(key, fallback) {
-  try {
-    return localStorage.getItem(key) || fallback;
-  } catch (_) {
-    return fallback;
-  }
+function resolveCurrentWorkflowKey() {
+  const host = comfyHostWindow();
+  if (host?.__pm4aBrowserWorkflowKey) return host.__pm4aBrowserWorkflowKey;
+  return resolveWorkflowKey(readComfyWorkflowSource(host));
 }
 
-function storeValue(key, value) {
-  try {
-    localStorage.setItem(key, String(value));
-  } catch (_) {
-    // Storage may be unavailable in hardened browser environments.
-  }
+function snapshotChrome() {
+  return {
+    prefix: state.prefix,
+    recursive: state.recursive,
+    sidebarOpen: state.sidebarOpen,
+    viewMode: state.viewMode,
+    browserMode: state.browserMode,
+    sortMode: state.sortMode,
+    sendMode: state.sendMode,
+    expanded: [...state.expanded],
+  };
 }
 
-function readStoredExpanded() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.expanded);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((path) => typeof path === "string" && path);
-  } catch (_) {
-    return [];
-  }
+function applyChromeToState(chrome) {
+  const next = normalizeChromeState(chrome);
+  state.prefix = next.prefix;
+  state.recursive = next.recursive;
+  state.sidebarOpen = next.sidebarOpen;
+  state.viewMode = next.viewMode;
+  state.browserMode = normalizeBrowserMode(next.browserMode);
+  state.sortMode = next.sortMode;
+  state.sendMode = next.sendMode;
+  state.expanded = new Set(next.expanded);
+}
+
+function persistChrome() {
+  saveChromeState(localStorage, chromeWorkflowKey, snapshotChrome());
 }
 
 function persistExpanded() {
-  storeValue(STORAGE_KEYS.expanded, JSON.stringify([...state.expanded]));
+  persistChrome();
 }
 
 function persistPrefix() {
-  storeValue(STORAGE_KEYS.prefix, state.prefix || "");
+  persistChrome();
 }
 
+function applyChromeToUi() {
+  applySidebarState();
+  applyViewMode(true);
+  applyBrowserMode();
+  updateSendModeButton();
+  $("sort-select").value = state.sortMode;
+  updateRecursiveButton();
+}
+
+async function switchWorkflowChrome(nextKey) {
+  const key = normalizeWorkflowKey(nextKey);
+  if (key === chromeWorkflowKey || chromeSwitching) return;
+  chromeSwitching = true;
+  try {
+    persistChrome();
+    chromeWorkflowKey = key;
+    applyChromeToState(loadChromeState(localStorage, key));
+    persistChrome();
+    applyChromeToUi();
+    if (state.browserMode === "nai") void ensureNaiSettingsOptions();
+    clearInspector();
+    await loadTree();
+    await resetAndLoadList({ preserveInspector: false });
+  } finally {
+    chromeSwitching = false;
+  }
+}
+
+function watchWorkflowKey() {
+  const host = comfyHostWindow();
+  if (!host) return;
+  const onChange = (key) => {
+    if (!key) return;
+    void switchWorkflowChrome(key);
+  };
+  host.addEventListener("pm4a-browser-workflow", (event) => {
+    onChange(event?.detail?.key || host.__pm4aBrowserWorkflowKey);
+  });
+  host.setInterval(() => onChange(resolveCurrentWorkflowKey()), 800);
+}
+
+let chromeWorkflowKey = resolveCurrentWorkflowKey();
+let chromeSwitching = false;
+
 const state = {
-  prefix: readStoredString(STORAGE_KEYS.prefix, ""),
+  prefix: "",
   search: "",
-  recursive: readStoredBoolean(STORAGE_KEYS.recursive, true),
-  sidebarOpen: readStoredBoolean(STORAGE_KEYS.sidebarOpen, true),
-  viewMode: readStoredString(STORAGE_KEYS.viewMode, "list") === "cards" ? "cards" : "list",
-  browserMode: normalizeBrowserMode(readStoredString(STORAGE_KEYS.browserMode, "comfy")),
+  recursive: true,
+  sidebarOpen: true,
+  viewMode: "list",
+  browserMode: "comfy",
   favorites: new Set(),
   favoriteRequests: new Set(),
   favoritesOnly: false,
-  sortMode: SORT_MODES.has(readStoredString(STORAGE_KEYS.sortMode, "path:asc"))
-    ? readStoredString(STORAGE_KEYS.sortMode, "path:asc")
-    : "path:asc",
-  sendMode: readStoredString(STORAGE_KEYS.sendMode, "append") === "replace"
-    ? "replace"
-    : "append",
+  sortMode: "path:asc",
+  sendMode: "append",
   limit: 100,
   offset: 0,
   total: 0,
@@ -264,7 +311,7 @@ const state = {
   items: [],
   tree: [],
   folderMap: new Map(),
-  expanded: new Set(readStoredExpanded()),
+  expanded: new Set(),
   fileCount: 0,
   requestGeneration: 0,
   listController: null,
@@ -2270,7 +2317,7 @@ function setViewMode(mode) {
   if (mode !== "list" && mode !== "cards") return;
   if (state.viewMode === mode) return;
   state.viewMode = mode;
-  storeValue(STORAGE_KEYS.viewMode, mode);
+  persistChrome();
   applyViewMode(true);
 }
 
@@ -2325,7 +2372,7 @@ function setBrowserMode(mode) {
   if (state.browserMode === next) return;
   captureDetailTextDraft();
   state.browserMode = next;
-  storeValue(STORAGE_KEYS.browserMode, next);
+  persistChrome();
   applyBrowserMode();
   if (next === "nai") void ensureNaiSettingsOptions();
   void resolveDetailTextDraft(next);
@@ -2378,7 +2425,7 @@ function updateSendModeButton() {
 
 function toggleSendMode() {
   state.sendMode = state.sendMode === "append" ? "replace" : "append";
-  storeValue(STORAGE_KEYS.sendMode, state.sendMode);
+  persistChrome();
   updateSendModeButton();
   toast(state.sendMode === "replace" ? t("发送模式：全部替换") : t("发送模式：追加到末尾"));
 }
@@ -3085,13 +3132,13 @@ function updateWorkspaceMargin() {
 
 function openSidebar() {
   state.sidebarOpen = true;
-  storeValue(STORAGE_KEYS.sidebarOpen, true);
+  persistChrome();
   applySidebarState();
 }
 
 function closeSidebar() {
   state.sidebarOpen = false;
-  storeValue(STORAGE_KEYS.sidebarOpen, false);
+  persistChrome();
   applySidebarState();
 }
 
@@ -5816,7 +5863,7 @@ function setupEventHandlers() {
 
   $("btn-recursive").addEventListener("click", () => {
     state.recursive = !state.recursive;
-    storeValue(STORAGE_KEYS.recursive, state.recursive);
+    persistChrome();
     updateRecursiveButton();
     resetAndLoadList({ preserveInspector: true });
   });
@@ -5940,7 +5987,7 @@ function setupEventHandlers() {
     const mode = $("sort-select").value;
     if (!SORT_MODES.has(mode) || mode === state.sortMode) return;
     state.sortMode = mode;
-    storeValue(STORAGE_KEYS.sortMode, mode);
+    persistChrome();
     resetAndLoadList();
   });
   $("btn-favorites-only").addEventListener("click", () => {
@@ -6339,6 +6386,9 @@ function setupInfiniteScroll() {
 }
 
 async function init() {
+  chromeWorkflowKey = resolveCurrentWorkflowKey();
+  applyChromeToState(loadChromeState(localStorage, chromeWorkflowKey));
+  persistChrome();
   applySidebarState();
   initializeNaiCharacterEditors();
   installInspectorSendIcons();
@@ -6358,6 +6408,7 @@ async function init() {
   clearInspector();
   await loadTree();
   await resetAndLoadList();
+  watchWorkflowKey();
 }
 
 init().catch((error) => {
