@@ -7,7 +7,14 @@
 
 面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard 与 JSON 卡片（LoRA + 稀疏生成设置）、多轨拼装提示词、Wildcard 批量时自动套用设置、从图片元数据回填，并保存带便携参数的生成结果。
 
-**当前版本：1.4.0** — 增加 NovelAI（NAI）Browser 模式、稀疏 `nai` 卡片字段、NAI 图片元数据读取与外部 NAI 节点发送接口。
+**当前版本：1.4.0**
+
+- 增加 NovelAI（NAI）Browser 模式、稀疏 `nai` 卡片字段、NAI 图片元数据读取，以及向外部 NAI 节点发送提示词和参数
+- 生成节点拆到独立的 `ComfyUI-4A-NovelAI`；未安装该插件时 Prompt Manager 仍可单独使用
+- Comfy / NAI 权重只在缺原生正文时自动转换；详情页、复制、发送、Wildcard 展开共用同一套规则
+- NAI 角色在进入 Comfy 时拍成 `charN:` 行
+- 编辑只写回当前模式，不覆盖另一侧的原生文本
+- Meta Apply / Meta Loader 预览改为上传后走 `/view` 持久化，换工作流或重启不再丢图
 
 ![总览](docs/images/hero.png)
 
@@ -43,6 +50,8 @@ NAI 生成节点已迁移到独立的 `ComfyUI-4A-NovelAI` 插件。本项目只
 - `nai.parameters` 只稀疏保存 `steps`、`cfg`、`sampler`、`scheduler`、`cfg_rescale`、`width`、`height`；`nai.characters` 按顺序保存每个角色的正负提示词，以及可选的单角色 `x/y`。模型和生成种子仍由独立生成插件的节点管理。
 - NAI 图片中的正负面、角色提示词、坐标和采样/尺寸参数继续由 PM4A 的元数据读取器识别，并可应用到 `ComfyUI-4A-NovelAI` 的 Scheduler / Sampler。
 - NAI 专用 Wildcard 展开、多角色调度、连续坐标定位、串行批量、模型/积分、Reference，以及通过专用图像输入节点切换 txt2img/img2img/inpaint，均由独立生成插件负责。
+
+![NAI 卡片与权重转换](docs/images/nai_cards.png)
 
 ### 元数据复用（Meta Loader / Meta Apply）
 

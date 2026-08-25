@@ -7,7 +7,14 @@ Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
-**Current release: 1.4.0** — adds NovelAI (NAI) Browser mode, sparse `nai` card settings, NAI image metadata reading, and an integration bridge for external NAI nodes.
+**Current release: 1.4.0**
+
+- Adds NovelAI (NAI) Browser mode, sparse `nai` card fields, NAI image metadata reading, and sending prompts/settings to external NAI nodes
+- Moves generation nodes into standalone `ComfyUI-4A-NovelAI`; Prompt Manager still works without that plugin
+- Converts Comfy / NAI weights only when the active mode has no native text; detail view, copy, send, and Wildcard expansion share the same rules
+- Flattens NAI characters into `charN:` lines when a card is used in Comfy
+- Writes edits back to the current mode only, without overwriting the other mode's native text
+- Persists Meta Apply / Meta Loader previews via `/view` after upload so they survive workflow switches and restarts
 
 ![Hero overview](docs/images/hero.png)
 
@@ -43,6 +50,8 @@ NAI generation nodes have moved to the standalone `ComfyUI-4A-NovelAI` plugin. T
 - `nai.parameters` stores only sparse `steps`, `cfg`, `sampler`, `scheduler`, `cfg_rescale`, `width`, and `height`. Ordered `nai.characters` store each character's positive/negative text plus optional per-character `x/y`; model and generation seed remain on the standalone generation nodes.
 - PM4A continues to read NAI positive/negative prompts, character prompts and coordinates, plus the sampler and size fields from images and can apply them to the standalone Scheduler / Sampler.
 - NAI-only Wildcard expansion, multi-character scheduling, free-form positioning, serial batch, model/account usage, references, and txt2img/img2img/inpaint switching through a dedicated image-input node belong to the generation plugin.
+
+![NAI cards and weight conversion](docs/images/nai_cards.png)
 
 ### Metadata reuse (Meta Loader & Meta Apply)
 
