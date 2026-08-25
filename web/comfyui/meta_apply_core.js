@@ -3,8 +3,8 @@ import { getPngMetadata, getWebpMetadata } from "../../scripts/pnginfo.js";
 import {
   readImagePromptDocument,
   sanitizeRawMetadata,
-} from "/pm4a/static/image_prompt_metadata.js?v=17";
-import { getLocale, pm4aFetch, t } from "./i18n.js?v=1";
+} from "/pm4a/static/image_prompt_metadata.js";
+import { getLocale, pm4aFetch, t } from "./i18n.js";
 
 export const SCHEDULER_NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
 export const INPUT_PARAMETERS_NODE_CLASS = "Input Parameters (4A Prompt Manager)";

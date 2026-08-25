@@ -45,6 +45,8 @@ _EN_MESSAGES = {
     "收藏读取失败：{error}": "Failed to load favorites: {error}",
     "收藏保存失败：{error}": "Failed to save favorites: {error}",
     "NovelAI 权重转换失败：{error}": "NovelAI weight conversion failed: {error}",
+    "Anima 权重转换失败：{error}": "Anima weight conversion failed: {error}",
+    "Anima 权重转换结果过大：{error}": "Anima weight conversion result is too large: {error}",
     "读取提示词文件夹失败：{error}": "Failed to read prompt folder: {error}",
     "准备批量运行失败：{error}": "Failed to prepare batch run: {error}",
     "负面提示词为空，没有发送内容": "Negative prompt is empty; nothing was sent",
@@ -103,6 +105,17 @@ _EN_MESSAGES = {
         "lora requires hashes to be saved{label}"
     ),
     "content 不能为空：{filename}": "content cannot be empty: {filename}",
+    "content 或 nai.content 至少一个不能为空{label}": (
+        "at least one of content or nai.content must be non-empty{label}"
+    ),
+    "{key} 必须是字符串{label}": "{key} must be a string{label}",
+    "nai.characters 必须是数组{label}": "nai.characters must be an array{label}",
+    "nai.characters 项必须是对象{label}": (
+        "nai.characters entries must be objects{label}"
+    ),
+    "nai.characters 的 x 与 y 必须成对出现{label}": (
+        "nai.characters x and y must appear as a pair{label}"
+    ),
     "选择种子必须是整数": "Selection seed must be an integer",
     "预览 LoRA 计划失败：{error}": "Failed to preview LoRA plan: {error}",
     "第 {index} 条提示词的 lora 无效：{error}": (
@@ -110,6 +123,10 @@ _EN_MESSAGES = {
     ),
     "第 {index} 条 TXT Wildcard 不支持 negative、note 或 lora": (
         "TXT wildcard {index} does not support negative, note, or lora"
+    ),
+    "第 {index} 条 TXT Wildcard 不支持 negative、note、lora、NAI 或生成设置": (
+        "TXT wildcard {index} does not support negative, note, lora, NAI, "
+        "or generation settings"
     ),
     "标题不能为空": "Title cannot be empty",
     "标题不能超过 200 个字符": "Title cannot exceed 200 characters",
@@ -262,6 +279,18 @@ _EN_MESSAGES = {
     "本轮提示词快照已失效，请重新点击批量运行": (
         "This prompt snapshot has expired; start the batch run again"
     ),
+    "{label}必须是字符串": "{label} must be a string",
+    "{label}必须是布尔值": "{label} must be a boolean",
+    "{label}必须是数字": "{label} must be a number",
+    "{label}必须是有限数字": "{label} must be a finite number",
+    "{label}必须是整数": "{label} must be an integer",
+    "{label}必须在 0 到 1 之间": "{label} must be between 0 and 1",
+    "{label}循环模式无效": "{label} has an invalid cycle mode",
+    "{label} ID 不能为空": "{label} ID cannot be empty",
+    "{label} ID 不能重复": "{label} IDs must be unique",
+    "nai 必须是对象{label}": "nai must be an object{label}",
+    "nai.parameters 必须是对象{label}": "nai.parameters must be an object{label}",
+    "{key} 必须是布尔值{label}": "{key} must be a boolean{label}",
     "提示词文件夹为空": "The prompt folder is empty",
     "未知循环模式：{mode}": "Unknown cycle mode: {mode}",
     # Generation

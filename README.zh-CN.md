@@ -7,7 +7,7 @@
 
 面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard 与 JSON 卡片（LoRA + 稀疏生成设置）、多轨拼装提示词、Wildcard 批量时自动套用设置、从图片元数据回填，并保存带便携参数的生成结果。
 
-**当前版本：1.3.2** — `{a|}` / `{a|b||}` 的空选项按 Impact 写法视为可选空字符串，不再报语法错误。
+**当前版本：1.4.0** — 增加 NovelAI（NAI）Browser 模式、稀疏 `nai` 卡片字段、NAI 图片元数据读取与外部 NAI 节点发送接口。
 
 ![总览](docs/images/hero.png)
 
@@ -34,6 +34,15 @@ JSON 卡片可稀疏绑定 LoRA、模型、推理参数（含 seed/宽高）、�
 完整规则与示例见 [`docs/wildcard-nesting.zh-CN.md`](docs/wildcard-nesting.zh-CN.md)。
 
 ![Scheduler](docs/images/scheduler.png)
+
+### NovelAI（NAI）提示词与元数据管理
+
+NAI 生成节点已迁移到独立的 `ComfyUI-4A-NovelAI` 插件。本项目只负责提示词卡保存、Wildcard 库、权重显示转换、图片元数据读取/应用，以及把提示词和稀疏参数发送到 NAI 节点；未安装生成插件时 PM4A 仍可独立使用。
+
+- JSON 卡片分别保存通用 `content` / `negative` 与 NAI 原生 `nai.content` / `nai.negative`。Browser 优先显示当前模式的原生文本；缺少时才临时转换另一套文本，用户编辑后只写回当前模式，避免 `{}`、`[]`、`N::text::` 被错误解释。详情页标题旁会标明当前是原生正文还是另一侧的转换预览。
+- `nai.parameters` 只稀疏保存 `steps`、`cfg`、`sampler`、`scheduler`、`cfg_rescale`、`width`、`height`；`nai.characters` 按顺序保存每个角色的正负提示词，以及可选的单角色 `x/y`。模型和生成种子仍由独立生成插件的节点管理。
+- NAI 图片中的正负面、角色提示词、坐标和采样/尺寸参数继续由 PM4A 的元数据读取器识别，并可应用到 `ComfyUI-4A-NovelAI` 的 Scheduler / Sampler。
+- NAI 专用 Wildcard 展开、多角色调度、连续坐标定位、串行批量、模型/积分、Reference，以及通过专用图像输入节点切换 txt2img/img2img/inpaint，均由独立生成插件负责。
 
 ### 元数据复用（Meta Loader / Meta Apply）
 
@@ -102,6 +111,7 @@ python install.py
 
 - **额外依赖：** [`piexif`](https://pypi.org/project/piexif/)（`>=1.1.3`），用于 Image Saver / 预览图的 JPEG·WebP EXIF
 - Pillow、NumPy、aiohttp 由 ComfyUI 提供
+- **可选 NAI 生成插件：** `ComfyUI-4A-NovelAI`；PM4A 本身不再注册 NAI 生成节点
 
 未安装 `piexif` 时：PNG 仍可保存；JPEG/WebP 写元数据会报错（预览 WebP 可能静默跳过 EXIF）。
 

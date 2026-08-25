@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>4A Prompt Manager</title>
-  <link rel="icon" type="image/svg+xml" href="/pm4a/static/favicon.svg?v=1" />
-  <link rel="stylesheet" href="/pm4a/static/style.css?v=58" />
+  <link rel="icon" type="image/svg+xml" href="/pm4a/static/favicon.svg" />
+  <link rel="stylesheet" href="/pm4a/static/style.css" />
 </head>
 <body>
   <script>
@@ -118,6 +118,10 @@
       <div class="content-toolbar">
         <nav id="crumbs" class="breadcrumbs" aria-label="当前位置" data-i18n-aria-label="当前位置"></nav>
         <div class="toolbar-end">
+          <div id="browser-mode-switch" class="view-switch browser-mode-switch" role="group" aria-label="Browser 模式" data-i18n-aria-label="Browser 模式">
+            <button type="button" id="btn-browser-mode-comfy" class="view-button active" title="Comfy 模式" data-i18n-title="Comfy 模式" aria-label="Comfy 模式" data-i18n-aria-label="Comfy 模式" aria-pressed="true"><span data-i18n="Comfy">Comfy</span></button>
+            <button type="button" id="btn-browser-mode-nai" class="view-button" title="NAI 模式" data-i18n-title="NAI 模式" aria-label="NAI 模式" data-i18n-aria-label="NAI 模式" aria-pressed="false"><span data-i18n="NAI">NAI</span></button>
+          </div>
           <button type="button" id="btn-send-mode" class="send-mode-button" data-mode="append" title="发送模式：追加到已有内容；点击切换为全部替换" aria-label="发送模式：追加到已有内容；点击切换为全部替换" data-i18n-title="发送模式：追加到已有内容；点击切换为全部替换" data-i18n-aria-label="发送模式：追加到已有内容；点击切换为全部替换" aria-pressed="false">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <g class="send-mode-append-icon"><path d="M4 7h9M4 12h7M4 17h9" /><path d="M18 13v8M14 17h8" /></g>
@@ -236,17 +240,14 @@
             <div class="detail-section-heading">
               <div class="detail-section-label-group">
                 <div id="detail-content-label" class="section-label" data-i18n="提示词内容">提示词内容</div>
+                <span id="detail-content-source" class="prompt-source-badge" hidden></span>
                 <button type="button" id="detail-copy-content" class="detail-edit-button" title="复制提示词内容" aria-label="复制提示词内容" data-i18n-title="复制提示词内容" data-i18n-aria-label="复制提示词内容">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v10A1.5 1.5 0 0 0 5.5 17H8" /></svg>
                 </button>
               </div>
-              <button type="button" id="detail-edit-content" class="detail-edit-button" title="修改提示词内容" aria-label="修改提示词内容" data-i18n-title="修改提示词内容" data-i18n-aria-label="修改提示词内容">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" /><path d="m13.8 7.2 3 3" /></svg>
-              </button>
             </div>
-            <pre id="detail-content" class="detail-content"></pre>
+            <textarea id="detail-content-editor" class="detail-content detail-content-editor" rows="1" spellcheck="false" aria-label="提示词内容" data-i18n-aria-label="提示词内容"></textarea>
             <p id="detail-content-truncated" class="detail-content-truncated" hidden></p>
-            <textarea id="detail-content-editor" class="detail-content detail-content-editor" spellcheck="false" hidden></textarea>
             <div class="detail-inline-send">
               <span class="detail-send-label" data-i18n="发送到">发送到</span>
               <button type="button" id="detail-send-mode" class="send-mode-button detail-send-mode-button" data-mode="append" title="发送模式：追加到已有内容；点击切换为全部替换" aria-label="发送模式：追加到已有内容；点击切换为全部替换" data-i18n-title="发送模式：追加到已有内容；点击切换为全部替换" data-i18n-aria-label="发送模式：追加到已有内容；点击切换为全部替换" aria-pressed="false">
@@ -267,24 +268,22 @@
           <section id="detail-negative-panel" class="detail-content-panel detail-optional-panel">
             <div class="detail-section-heading">
               <div class="detail-section-label-group">
-                <div class="section-label" data-i18n="负面提示词">负面提示词</div>
+                <div id="detail-negative-label" class="section-label" data-i18n="负面提示词">负面提示词</div>
+                <span id="detail-negative-source" class="prompt-source-badge" hidden></span>
                 <button type="button" id="detail-copy-negative" class="detail-edit-button" title="复制负面提示词" aria-label="复制负面提示词" data-i18n-title="复制负面提示词" data-i18n-aria-label="复制负面提示词">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v10A1.5 1.5 0 0 0 5.5 17H8" /></svg>
                 </button>
               </div>
-              <button type="button" id="detail-edit-negative" class="detail-edit-button" title="修改负面提示词" aria-label="修改负面提示词" data-i18n-title="修改负面提示词" data-i18n-aria-label="修改负面提示词">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" /><path d="m13.8 7.2 3 3" /></svg>
-              </button>
             </div>
-            <pre id="detail-negative" class="detail-content detail-optional-content" data-empty-text="暂无负面提示词" data-i18n-empty-text="暂无负面提示词"></pre>
-            <textarea id="detail-negative-editor" class="detail-content detail-content-editor" placeholder="可留空" data-i18n-placeholder="可留空" spellcheck="false" hidden></textarea>
+            <textarea id="detail-negative-editor" class="detail-content detail-content-editor" rows="1" placeholder="暂无负面提示词" data-i18n-placeholder="暂无负面提示词" spellcheck="false" aria-label="负面提示词" data-i18n-aria-label="负面提示词"></textarea>
             <div class="detail-inline-send">
               <span class="detail-send-label" data-i18n="发送到">发送到</span>
               <div class="detail-send-actions" aria-label="发送负面提示词" data-i18n-aria-label="发送负面提示词">
                 <button type="button" class="inspector-send-button negative-slot" data-slot="negative" title="发送到负面" aria-label="发送到负面" data-i18n-title="发送到负面" data-i18n-aria-label="发送到负面"><span data-i18n="负面">负面</span></button>
-                <button type="button" class="inspector-send-button apply-models-slot" data-apply="models" title="应用模型" aria-label="应用模型" data-i18n-title="应用模型" data-i18n-aria-label="应用模型"><span data-i18n="模型">模型</span></button>
-                <button type="button" class="inspector-send-button apply-lora-slot" data-apply="lora" title="应用 LoRA" aria-label="应用 LoRA" data-i18n-title="应用 LoRA" data-i18n-aria-label="应用 LoRA"><span data-i18n="LoRA">LoRA</span></button>
-                <button type="button" class="inspector-send-button apply-parameters-slot" data-apply="parameters" title="应用推理参数" aria-label="应用推理参数" data-i18n-title="应用推理参数" data-i18n-aria-label="应用推理参数"><span data-i18n="参数">参数</span></button>
+                <button type="button" class="inspector-send-button apply-models-slot" data-apply="models" data-comfy-apply title="应用模型" aria-label="应用模型" data-i18n-title="应用模型" data-i18n-aria-label="应用模型"><span data-i18n="模型">模型</span></button>
+                <button type="button" class="inspector-send-button apply-lora-slot" data-apply="lora" data-comfy-apply title="应用 LoRA" aria-label="应用 LoRA" data-i18n-title="应用 LoRA" data-i18n-aria-label="应用 LoRA"><span data-i18n="LoRA">LoRA</span></button>
+                <button type="button" class="inspector-send-button apply-parameters-slot" data-apply="parameters" data-comfy-apply title="应用推理参数" aria-label="应用推理参数" data-i18n-title="应用推理参数" data-i18n-aria-label="应用推理参数"><span data-i18n="参数">参数</span></button>
+                <button type="button" class="inspector-send-button apply-parameters-slot" data-nai-apply="parameters" hidden title="发送 NAI 设置" aria-label="发送 NAI 设置" data-i18n-title="发送 NAI 设置" data-i18n-aria-label="发送 NAI 设置"><span data-i18n="参数">参数</span></button>
               </div>
             </div>
           </section>
@@ -347,17 +346,46 @@
             </div>
             <input id="detail-settings-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
           </section>
+          <section id="detail-nai-settings-panel" class="detail-content-panel detail-optional-panel" hidden>
+            <div class="detail-section-heading">
+              <div class="detail-section-label-group">
+                <div class="section-label" data-i18n="NAI 生成设置">NAI 生成设置</div>
+              </div>
+            </div>
+            <div id="detail-nai-settings-form">
+              <div class="card-settings-block">
+                <div class="card-settings-grid">
+                  <label><span data-i18n="步数">步数</span><input data-nai-param="steps" type="text" inputmode="numeric" spellcheck="false" /></label>
+                  <label><span data-i18n="CFG">CFG</span><input data-nai-param="cfg" type="text" inputmode="decimal" spellcheck="false" /></label>
+                  <label><span data-i18n="采样器">采样器</span><select data-nai-param="sampler"><option value=""></option></select></label>
+                  <label><span data-i18n="调度器">调度器</span><select data-nai-param="scheduler"><option value=""></option></select></label>
+                  <label><span data-i18n="CFG Rescale">CFG Rescale</span><input data-nai-param="cfg_rescale" type="text" inputmode="decimal" spellcheck="false" /></label>
+                  <label class="card-settings-row-start"><span data-i18n="宽度">宽度</span><input data-nai-param="width" type="text" inputmode="numeric" spellcheck="false" /></label>
+                  <label><span data-i18n="高度">高度</span><input data-nai-param="height" type="text" inputmode="numeric" spellcheck="false" /></label>
+                </div>
+              </div>
+            </div>
+            <div class="card-settings-block">
+              <div class="detail-section-heading">
+                <div class="detail-section-label-group">
+                  <div class="card-settings-subtitle" data-i18n="角色提示词">角色提示词</div>
+                  <button type="button" id="detail-nai-edit-positions" class="modal-secondary-button" hidden title="编辑角色位置" data-i18n-title="编辑角色位置" aria-label="编辑角色位置" data-i18n-aria-label="编辑角色位置" data-i18n="编辑角色位置">编辑角色位置</button>
+                </div>
+                <button type="button" id="detail-nai-add-character" class="detail-edit-button" title="添加角色" aria-label="添加角色" data-i18n-title="添加角色" data-i18n-aria-label="添加角色">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" /></svg>
+                </button>
+              </div>
+              <div id="detail-nai-characters"></div>
+            </div>
+            <p id="detail-nai-options-status" class="send-status" aria-live="polite"></p>
+          </section>
           <section id="detail-note-panel" class="detail-content-panel detail-optional-panel">
             <div class="detail-section-heading">
               <div class="detail-section-label-group">
-                <div class="section-label" data-i18n="备注">备注</div>
+                <div id="detail-note-label" class="section-label" data-i18n="备注">备注</div>
               </div>
-              <button type="button" id="detail-edit-note" class="detail-edit-button" title="修改备注" aria-label="修改备注" data-i18n-title="修改备注" data-i18n-aria-label="修改备注">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" /><path d="m13.8 7.2 3 3" /></svg>
-              </button>
             </div>
-            <pre id="detail-note" class="detail-content detail-note-content detail-optional-content" data-empty-text="暂无备注" data-i18n-empty-text="暂无备注"></pre>
-            <textarea id="detail-note-editor" class="detail-content detail-content-editor detail-note-content" placeholder="例如：推荐竖图、适用尺寸或模型注意事项" data-i18n-placeholder="例如：推荐竖图、适用尺寸或模型注意事项" spellcheck="false" hidden></textarea>
+            <textarea id="detail-note-editor" class="detail-content detail-content-editor detail-note-content" rows="1" placeholder="例如：推荐竖图、适用尺寸或模型注意事项" data-i18n-placeholder="例如：推荐竖图、适用尺寸或模型注意事项" spellcheck="false" aria-label="备注" data-i18n-aria-label="备注"></textarea>
           </section>
         </div>
 
@@ -424,18 +452,18 @@
               <input id="add-prompt-name" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="输入提示词标题" data-i18n-placeholder="输入提示词标题" />
             </label>
             <label class="create-field create-text-field">
-              <span data-i18n="正面提示词">正面提示词</span>
+              <span id="add-prompt-content-label" data-i18n="正面提示词">正面提示词</span>
               <textarea id="add-prompt-content" spellcheck="false" placeholder="输入正面提示词，或拖入带 metadata 的图片自动读取" data-i18n-placeholder="输入正面提示词，或拖入带 metadata 的图片自动读取"></textarea>
             </label>
             <label class="create-field create-text-field">
-              <span data-i18n="负面提示词">负面提示词</span>
+              <span id="add-prompt-negative-label" data-i18n="负面提示词">负面提示词</span>
               <textarea id="add-prompt-negative" spellcheck="false" placeholder="可留空" data-i18n-placeholder="可留空"></textarea>
             </label>
             <label class="create-field create-note-field">
               <span data-i18n="备注">备注</span>
               <textarea id="add-prompt-note" spellcheck="false" placeholder="可留空" data-i18n-placeholder="可留空"></textarea>
             </label>
-            <section class="create-lora-panel">
+            <section id="add-comfy-lora-panel" class="create-lora-panel">
               <div class="create-section-label-row">
                 <span data-i18n="Lora">Lora</span>
                 <button type="button" id="add-prompt-add-lora" class="detail-edit-button" title="添加 LoRA" aria-label="添加 LoRA" data-i18n-title="添加 LoRA" data-i18n-aria-label="添加 LoRA">
@@ -444,7 +472,7 @@
               </div>
               <div id="add-lora-list" class="detail-lora-list" data-empty-text="暂无 LoRA" data-i18n-empty-text="暂无 LoRA"></div>
             </section>
-            <section class="create-field card-settings-create">
+            <section id="add-comfy-settings-panel" class="create-field card-settings-create">
               <div class="create-section-label-row">
                 <span data-i18n="生成设置">生成设置</span>
                 <button type="button" id="add-prompt-load-settings" class="modal-secondary-button" data-i18n="从图片加载生成设置">从图片加载生成设置</button>
@@ -481,6 +509,36 @@
                   <label><span data-i18n="调度器">调度器</span><select data-double="scheduler"></select></label>
                 </div>
               </div>
+            </section>
+            <section id="add-nai-settings-panel" class="create-field card-settings-create" hidden>
+              <div class="create-section-label-row">
+                <span data-i18n="NAI 生成设置">NAI 生成设置</span>
+                <button type="button" id="add-prompt-load-nai-settings" class="modal-secondary-button" data-i18n="从图片加载生成设置">从图片加载生成设置</button>
+              </div>
+              <div id="add-nai-settings-form">
+                <div class="card-settings-block">
+                  <div class="card-settings-grid">
+                    <label><span data-i18n="步数">步数</span><input data-nai-param="steps" type="text" inputmode="numeric" spellcheck="false" /></label>
+                    <label><span data-i18n="CFG">CFG</span><input data-nai-param="cfg" type="text" inputmode="decimal" spellcheck="false" /></label>
+                    <label><span data-i18n="采样器">采样器</span><select data-nai-param="sampler"><option value=""></option></select></label>
+                    <label><span data-i18n="调度器">调度器</span><select data-nai-param="scheduler"><option value=""></option></select></label>
+                    <label><span data-i18n="CFG Rescale">CFG Rescale</span><input data-nai-param="cfg_rescale" type="text" inputmode="decimal" spellcheck="false" /></label>
+                    <label class="card-settings-row-start"><span data-i18n="宽度">宽度</span><input data-nai-param="width" type="text" inputmode="numeric" spellcheck="false" /></label>
+                    <label><span data-i18n="高度">高度</span><input data-nai-param="height" type="text" inputmode="numeric" spellcheck="false" /></label>
+                  </div>
+                </div>
+              </div>
+              <div class="create-section-label-row">
+                <span data-i18n="角色提示词">角色提示词</span>
+                <div class="nai-character-heading-actions">
+                  <button type="button" id="add-nai-edit-positions" class="modal-secondary-button" hidden title="编辑角色位置" data-i18n-title="编辑角色位置" aria-label="编辑角色位置" data-i18n-aria-label="编辑角色位置" data-i18n="编辑角色位置">编辑角色位置</button>
+                  <button type="button" id="add-nai-add-character" class="detail-edit-button" title="添加角色" aria-label="添加角色" data-i18n-title="添加角色" data-i18n-aria-label="添加角色">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" /></svg>
+                  </button>
+                </div>
+              </div>
+              <div id="add-nai-characters"></div>
+              <p id="add-nai-options-status" class="send-status" aria-live="polite"></p>
             </section>
           </div>
         </div>
@@ -857,6 +915,6 @@
 
   <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
 
-  <script type="module" src="/pm4a/static/app.js?v=72"></script>
+  <script type="module" src="/pm4a/static/app.js"></script>
 </body>
 </html>

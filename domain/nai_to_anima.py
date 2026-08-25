@@ -56,12 +56,18 @@ class Parser:
             raise PromptSyntaxError(f"unexpected trailing text at position {self.pos}")
         return nodes
 
-    def _parse_until(self, closer: str | None) -> list[Node]:
+    def _parse_until(
+        self,
+        closer: str | None,
+        *,
+        allow_empty: bool = False,
+    ) -> list[Node]:
         nodes: list[Node] = []
         while self.pos < len(self.text):
             if closer == "::" and self.text.startswith("::", self.pos):
                 self.pos += 2
-                self._require_content(nodes, "::")
+                if not allow_empty:
+                    self._require_content(nodes, "::")
                 return nodes
 
             char = self.text[self.pos]
@@ -83,6 +89,17 @@ class Parser:
 
             number_match = self._number_group_at(self.pos)
             if number_match is not None:
+                if closer == "::":
+                    ambiguous_start = self.pos
+                    try:
+                        nested = self._parse_number_group(number_match)
+                        tail = self._parse_until("::", allow_empty=True)
+                        return [*nodes, nested, *tail]
+                    except PromptSyntaxError:
+                        self.pos = ambiguous_start
+                        nodes.append(TextNode(number_match.group(0)))
+                        self.pos = number_match.end()
+                        continue
                 nodes.append(self._parse_number_group(number_match))
                 continue
             if char == "{":
@@ -206,6 +223,14 @@ def convert_prompt(
 
 
 def convert_prompt_tolerant(prompt: str) -> ConversionResult:
+    try:
+        return ConversionResult(
+            text=convert_prompt(prompt),
+            repaired_prompt=prompt,
+            added_closers=(),
+        )
+    except PromptSyntaxError:
+        pass
     repaired_prompt, added_closers = repair_missing_closers(prompt)
     return ConversionResult(
         text=convert_prompt(repaired_prompt),

@@ -36,10 +36,15 @@ try:
         empty_lora_payload,
         empty_double_sample_payload,
         empty_models_payload,
+        empty_nai_payload,
         empty_parameters_payload,
+        nai_from_document,
+        card_has_positive_prompt,
+        copy_nai_payload,
         normalize_double_sample_payload,
         normalize_lora_payload,
         normalize_models_payload,
+        normalize_nai_payload,
         normalize_parameters_payload,
         parse_txt_options,
         read_prompt_document,
@@ -85,10 +90,15 @@ except ImportError:  # standalone preview
         empty_lora_payload,
         empty_double_sample_payload,
         empty_models_payload,
+        empty_nai_payload,
         empty_parameters_payload,
+        nai_from_document,
+        card_has_positive_prompt,
+        copy_nai_payload,
         normalize_double_sample_payload,
         normalize_lora_payload,
         normalize_models_payload,
+        normalize_nai_payload,
         normalize_parameters_payload,
         parse_txt_options,
         read_prompt_document,
@@ -128,9 +138,11 @@ _negative_dict: dict[str, str] = {}
 _note_dict: dict[str, str] = {}
 _lora_dict: dict[str, dict[str, Any]] = {}
 _settings_dict: dict[str, dict[str, Any]] = {}
+_nai_dict: dict[str, dict[str, Any]] = {}
 _folder_display_paths: dict[str, str] = {}
 _conflict_keys: tuple[str, ...] = ()
 _loaded_root: Optional[Path] = None
+_NAI_UNSET = object()
 
 ProgressCallback = Callable[[int, int, str], None]
 
@@ -153,6 +165,7 @@ def _entry_capabilities(entry_format: str) -> dict[str, bool]:
         "models": not is_txt,
         "parameters": not is_txt,
         "double_sample_parameters": not is_txt,
+        "nai": not is_txt,
         "image": True,
         "generation": not is_txt,
         "external_edit": is_txt,
@@ -166,6 +179,10 @@ def _copy_settings(value: Optional[dict[str, Any]]) -> dict[str, Any]:
         "parameters": dict(source.get("parameters") or {}),
         "double_sample_parameters": dict(source.get("double_sample_parameters") or {}),
     }
+
+
+def _copy_nai(value: Any) -> dict[str, Any]:
+    return copy_nai_payload(value)
 
 
 def _normalize_card_settings(
@@ -260,12 +277,13 @@ def _publish_library_indexes(
     note_dict: dict[str, str],
     lora_dict: dict[str, dict[str, Any]],
     settings_dict: dict[str, dict[str, Any]],
+    nai_dict: dict[str, dict[str, Any]],
     folder_dict: dict[str, list[str]],
     folder_display_paths: dict[str, str],
     conflict_keys: tuple[str, ...],
 ) -> None:
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict, _nai_dict
     global _folder_display_paths, _conflict_keys, _loaded_root
     with _lock:
         _file_dict = file_dict
@@ -276,6 +294,7 @@ def _publish_library_indexes(
         _note_dict = note_dict
         _lora_dict = lora_dict
         _settings_dict = settings_dict
+        _nai_dict = nai_dict
         _folder_display_paths = folder_display_paths
         _conflict_keys = conflict_keys
         _loaded_root = root
@@ -292,6 +311,7 @@ def _write_index_cache(
     note_dict: dict[str, str],
     lora_dict: dict[str, dict[str, Any]],
     settings_dict: dict[str, dict[str, Any]],
+    nai_dict: dict[str, dict[str, Any]],
     folder_display_paths: dict[str, str],
     conflict_keys: tuple[str, ...],
 ) -> None:
@@ -309,6 +329,7 @@ def _write_index_cache(
             "note": note_dict.get(key, ""),
             "lora": dict(lora_dict.get(key) or empty_lora_payload()),
             "settings": _copy_settings(settings_dict.get(key)),
+            "nai": _copy_nai(nai_dict.get(key)),
         }
     empty_folders = {
         key: display
@@ -339,6 +360,7 @@ def _apply_index_cache_snapshot(root: Path, snapshot: dict[str, Any]) -> bool:
     note_dict: dict[str, str] = {}
     lora_dict: dict[str, dict[str, Any]] = {}
     settings_dict: dict[str, dict[str, Any]] = {}
+    nai_dict: dict[str, dict[str, Any]] = {}
     for key, raw in entries.items():
         if not isinstance(key, str) or not isinstance(raw, dict):
             return False
@@ -353,6 +375,7 @@ def _apply_index_cache_snapshot(root: Path, snapshot: dict[str, Any]) -> bool:
             note_dict=note_dict,
             lora_dict=lora_dict,
             settings_dict=settings_dict,
+            nai_dict=nai_dict,
         ):
             return False
 
@@ -395,6 +418,7 @@ def _apply_index_cache_snapshot(root: Path, snapshot: dict[str, Any]) -> bool:
         note_dict=note_dict,
         lora_dict=lora_dict,
         settings_dict=settings_dict,
+        nai_dict=nai_dict,
         folder_dict=folder_dict,
         folder_display_paths=folder_display_paths,
         conflict_keys=conflict_keys,
@@ -430,6 +454,7 @@ def _drop_indexed_key(
     note_dict: dict[str, str],
     lora_dict: dict[str, dict[str, Any]],
     settings_dict: dict[str, dict[str, Any]],
+    nai_dict: dict[str, dict[str, Any]],
 ) -> None:
     file_dict.pop(key, None)
     file_paths.pop(key, None)
@@ -438,6 +463,7 @@ def _drop_indexed_key(
     note_dict.pop(key, None)
     lora_dict.pop(key, None)
     settings_dict.pop(key, None)
+    nai_dict.pop(key, None)
 
 
 def _display_path_from_relative(relative: str) -> str:
@@ -461,6 +487,7 @@ def _absorb_cached_entry(
     note_dict: dict[str, str],
     lora_dict: dict[str, dict[str, Any]],
     settings_dict: dict[str, dict[str, Any]],
+    nai_dict: dict[str, dict[str, Any]],
 ) -> bool:
     relative = raw.get("path")
     options = raw.get("options")
@@ -481,6 +508,7 @@ def _absorb_cached_entry(
     settings_dict[key] = (
         _copy_settings(settings) if isinstance(settings, dict) else empty_card_settings()
     )
+    nai_dict[key] = _copy_nai(raw.get("nai"))
     return True
 
 
@@ -495,6 +523,7 @@ def _index_prompt_file_from_disk(
     note_dict: dict[str, str],
     lora_dict: dict[str, dict[str, Any]],
     settings_dict: dict[str, dict[str, Any]],
+    nai_dict: dict[str, dict[str, Any]],
     conflict_keys: set[str],
 ) -> None:
     path = root.joinpath(*relative.split("/"))
@@ -526,6 +555,7 @@ def _index_prompt_file_from_disk(
             note_dict=note_dict,
             lora_dict=lora_dict,
             settings_dict=settings_dict,
+            nai_dict=nai_dict,
         )
         logger.error("Conflicting TXT and JSON prompt documents share key %s", key)
         return
@@ -537,11 +567,13 @@ def _index_prompt_file_from_disk(
         note_dict[key] = ""
         lora_dict[key] = empty_lora_payload()
         settings_dict[key] = empty_card_settings()
+        nai_dict[key] = empty_nai_payload()
     else:
         negative_dict[key] = document.negative
         note_dict[key] = document.note
         lora_dict[key] = dict(document.lora)
         settings_dict[key] = card_settings_from_document(document)
+        nai_dict[key] = nai_from_document(document)
 
 
 def _finalize_loaded_indexes(
@@ -555,6 +587,7 @@ def _finalize_loaded_indexes(
     note_dict: dict[str, str],
     lora_dict: dict[str, dict[str, Any]],
     settings_dict: dict[str, dict[str, Any]],
+    nai_dict: dict[str, dict[str, Any]],
     conflict_keys: set[str],
     folder_source: str,
 ) -> None:
@@ -594,6 +627,7 @@ def _finalize_loaded_indexes(
         note_dict=note_dict,
         lora_dict=lora_dict,
         settings_dict=settings_dict,
+        nai_dict=nai_dict,
         folder_dict=folder_dict,
         folder_display_paths=folder_display_paths,
         conflict_keys=conflict_tuple,
@@ -608,6 +642,7 @@ def _finalize_loaded_indexes(
         note_dict=note_dict,
         lora_dict=lora_dict,
         settings_dict=settings_dict,
+        nai_dict=nai_dict,
         folder_display_paths=folder_display_paths,
         conflict_keys=conflict_tuple,
     )
@@ -627,6 +662,7 @@ def _reload_full_scan(root: Path) -> None:
     note_dict: dict[str, str] = {}
     lora_dict: dict[str, dict[str, Any]] = {}
     settings_dict: dict[str, dict[str, Any]] = {}
+    nai_dict: dict[str, dict[str, Any]] = {}
     conflict_keys: set[str] = set()
 
     for txt in root.rglob("*.txt"):
@@ -648,6 +684,7 @@ def _reload_full_scan(root: Path) -> None:
             note_dict=note_dict,
             lora_dict=lora_dict,
             settings_dict=settings_dict,
+            nai_dict=nai_dict,
             conflict_keys=conflict_keys,
         )
 
@@ -670,6 +707,7 @@ def _reload_full_scan(root: Path) -> None:
             note_dict=note_dict,
             lora_dict=lora_dict,
             settings_dict=settings_dict,
+            nai_dict=nai_dict,
             conflict_keys=conflict_keys,
         )
 
@@ -684,6 +722,7 @@ def _reload_full_scan(root: Path) -> None:
         note_dict=note_dict,
         lora_dict=lora_dict,
         settings_dict=settings_dict,
+        nai_dict=nai_dict,
         conflict_keys=conflict_keys,
         folder_source="disk-rglob",
     )
@@ -721,6 +760,7 @@ def _reload_incremental_from_cache(
     note_dict: dict[str, str] = {}
     lora_dict: dict[str, dict[str, Any]] = {}
     settings_dict: dict[str, dict[str, Any]] = {}
+    nai_dict: dict[str, dict[str, Any]] = {}
     conflict_keys: set[str] = set()
 
     tracked_files = current_fingerprint.get("files") or {}
@@ -749,6 +789,7 @@ def _reload_incremental_from_cache(
             note_dict=note_dict,
             lora_dict=lora_dict,
             settings_dict=settings_dict,
+            nai_dict=nai_dict,
         ):
             return False
 
@@ -763,6 +804,7 @@ def _reload_incremental_from_cache(
             note_dict=note_dict,
             lora_dict=lora_dict,
             settings_dict=settings_dict,
+            nai_dict=nai_dict,
             conflict_keys=conflict_keys,
         )
     _finalize_loaded_indexes(
@@ -775,6 +817,7 @@ def _reload_incremental_from_cache(
         note_dict=note_dict,
         lora_dict=lora_dict,
         settings_dict=settings_dict,
+        nai_dict=nai_dict,
         conflict_keys=conflict_keys,
         folder_source="fingerprint-dirs",
     )
@@ -806,6 +849,7 @@ def reload(root: Optional[Path] = None, *, force: bool = False) -> None:
             note_dict={},
             lora_dict={},
             settings_dict={},
+            nai_dict={},
             folder_dict={},
             folder_display_paths={},
             conflict_keys=(),
@@ -858,6 +902,7 @@ def snapshot_resolver() -> LibraryWildcardResolver:
             _display_paths,
             _lora_dict,
             _settings_dict,
+            nai_dict=_nai_dict,
         )
 
 
@@ -938,7 +983,7 @@ def create_folder(parent: str, name: str) -> dict:
 def rename_folder(folder: str, name: str) -> dict:
     """Rename one indexed folder while preserving prompt metadata and keys."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict, _nai_dict
     global _folder_display_paths
 
     ensure_loaded()
@@ -981,6 +1026,7 @@ def rename_folder(folder: str, name: str) -> dict:
         updated_note_dict: dict[str, str] = {}
         updated_lora_dict: dict[str, dict[str, Any]] = {}
         updated_settings_dict: dict[str, dict[str, Any]] = {}
+        updated_nai_dict: dict[str, dict[str, Any]] = {}
         key_moves: dict[str, str] = {}
         source_prefix = folder_key + "/"
 
@@ -1013,6 +1059,8 @@ def rename_folder(folder: str, name: str) -> dict:
                 updated_settings_dict[next_key] = _copy_settings(
                     _settings_dict[current_key]
                 )
+            if current_key in _nai_dict:
+                updated_nai_dict[next_key] = _copy_nai(_nai_dict[current_key])
 
         renamed = False
         try:
@@ -1044,6 +1092,7 @@ def rename_folder(folder: str, name: str) -> dict:
         _note_dict = updated_note_dict
         _lora_dict = updated_lora_dict
         _settings_dict = updated_settings_dict
+        _nai_dict = updated_nai_dict
         _folder_dict = updated_folder_dict
         _folder_display_paths = updated_folder_display_paths
 
@@ -1082,13 +1131,12 @@ def create_entry(
     models: Optional[list[dict[str, Any]]] = None,
     parameters: Optional[dict[str, Any]] = None,
     double_sample_parameters: Optional[dict[str, Any]] = None,
+    nai: Any = _NAI_UNSET,
 ) -> dict:
     """Create a JSON prompt inside an existing folder without overwriting."""
     ensure_loaded()
     entry_name = _validated_entry_name(name)
-    normalized_content = _normalize_txt_text(content)
-    if not normalized_content:
-        raise ValueError(tr("提示词内容不能为空"))
+    normalized_content = _normalize_txt_text(content) or ""
     normalized_negative = _normalize_optional_prompt(negative)
     normalized_note = note.strip()
     normalized_lora = normalize_lora_payload(lora, require_hashes_when_text=True)
@@ -1097,6 +1145,11 @@ def create_entry(
         parameters=parameters,
         double_sample_parameters=double_sample_parameters,
     )
+    normalized_nai = normalize_nai_payload(
+        None if nai is _NAI_UNSET else nai
+    )
+    if not card_has_positive_prompt(normalized_content, normalized_nai):
+        raise ValueError(tr("提示词内容不能为空"))
 
     with _lock:
         folder_path, folder_key, folder_display = _resolve_folder_path_locked(folder)
@@ -1113,6 +1166,7 @@ def create_entry(
             models=normalized_settings["models"],
             parameters=normalized_settings["parameters"],
             double_sample_parameters=normalized_settings["double_sample_parameters"],
+            nai=normalized_nai,
         )
         display_path = f"{folder_display}/{entry_name}" if folder_display else entry_name
         root = Path(_loaded_root or get_wildcards_path())
@@ -1123,6 +1177,7 @@ def create_entry(
         _note_dict[target_key] = normalized_note
         _lora_dict[target_key] = normalized_lora
         _settings_dict[target_key] = normalized_settings
+        _nai_dict[target_key] = normalized_nai
 
         root_options = _folder_dict.setdefault(ROOT_WILDCARD_KEY, [])
         if normalized_content not in root_options:
@@ -1222,6 +1277,11 @@ def export_prompt_bundle(
                             if value
                         }
                     ),
+                    **(
+                        {}
+                        if is_txt or not _nai_dict.get(key)
+                        else {"nai": _copy_nai(_nai_dict.get(key))}
+                    ),
                 }
             )
             if progress_callback:
@@ -1267,7 +1327,7 @@ def _validated_import_document(
 ) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError(tr("第 {index} 条提示词必须是对象", index=index))
-    content = raw.get("content")
+    content = raw.get("content", "")
     if require_storage and "storage" not in raw:
         raise ValueError(
             tr("第 {index} 条提示词必须声明 storage", index=index)
@@ -1279,6 +1339,7 @@ def _validated_import_document(
     models_raw = raw.get("models")
     parameters_raw = raw.get("parameters")
     double_sample_raw = raw.get("double_sample_parameters")
+    nai_raw = raw.get("nai")
     if not isinstance(content, str):
         raise ValueError(
             tr("第 {index} 条提示词的 content 必须是字符串", index=index)
@@ -1306,6 +1367,11 @@ def _validated_import_document(
                 double_sample_parameters=double_sample_raw,
             )
         )
+        normalized_nai = (
+            empty_nai_payload()
+            if storage == "txt"
+            else normalize_nai_payload(nai_raw)
+        )
     except ValueError as exc:
         raise ValueError(
             tr("第 {index} 条提示词的生成设置无效：{error}", index=index, error=exc)
@@ -1325,11 +1391,12 @@ def _validated_import_document(
             models_raw not in (None, "", [])
             or parameters_raw not in (None, "", {})
             or double_sample_raw not in (None, "", {})
+            or nai_raw not in (None, "", {})
         )
         if negative.strip() or note.strip() or (lora_raw not in (None, "", {})) or has_settings:
             raise ValueError(
                 tr(
-                    "第 {index} 条 TXT Wildcard 不支持 negative、note、lora 或生成设置",
+                    "第 {index} 条 TXT Wildcard 不支持 negative、note、lora、NAI 或生成设置",
                     index=index,
                 )
             )
@@ -1337,9 +1404,9 @@ def _validated_import_document(
         if not parse_txt_options(normalized_content):
             raise ValueError(tr("第 {index} 条提示词内容为空", index=index))
     else:
-        normalized_content = _normalize_txt_text(content)
-    if not normalized_content:
-        raise ValueError(tr("第 {index} 条提示词内容为空", index=index))
+        normalized_content = _normalize_txt_text(content) or ""
+        if not card_has_positive_prompt(normalized_content, normalized_nai):
+            raise ValueError(tr("第 {index} 条提示词内容为空", index=index))
     return {
         "storage": storage,
         "content": normalized_content,
@@ -1349,6 +1416,7 @@ def _validated_import_document(
         "models": normalized_settings["models"],
         "parameters": normalized_settings["parameters"],
         "double_sample_parameters": normalized_settings["double_sample_parameters"],
+        "nai": normalized_nai,
         "metadata": _validated_import_metadata(raw.get("metadata"), index),
     }
 
@@ -1401,6 +1469,7 @@ def _plan_bulk_import_locked(
         + len(document["negative"])
         + len(document["note"])
         + len(str(document.get("lora") or ""))
+        + len(str(document.get("nai") or ""))
         for document in documents
     ) > MAX_BULK_IMPORT_CHARACTERS:
         raise ValueError(tr("导入的提示词文本总量过大"))
@@ -1532,6 +1601,7 @@ def import_prompt_bundle(
                             item.get("double_sample_parameters")
                             or empty_double_sample_payload()
                         ),
+                        nai=item.get("nai") or empty_nai_payload(),
                     )
                 created_files.append(target)
                 if progress_callback:
@@ -1924,7 +1994,7 @@ def operate_items(
 ) -> dict:
     """Delete, copy, or move indexed entries without rescanning the library."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict, _nai_dict
     global _folder_display_paths
 
     ensure_loaded()
@@ -1990,6 +2060,9 @@ def operate_items(
         original_lora_dict = dict(_lora_dict)
         original_settings_dict = {
             key: _copy_settings(value) for key, value in _settings_dict.items()
+        }
+        original_nai_dict = {
+            key: _copy_nai(value) for key, value in _nai_dict.items()
         }
         original_folder_displays = dict(_folder_display_paths)
         indexed_paths = {_path_identity(path): key for key, path in original_file_paths.items()}
@@ -2130,6 +2203,9 @@ def operate_items(
         next_settings_dict = {
             key: _copy_settings(value) for key, value in original_settings_dict.items()
         }
+        next_nai_dict = {
+            key: _copy_nai(value) for key, value in original_nai_dict.items()
+        }
         key_moves: dict[str, str] = {}
         key_copies: dict[str, str] = {}
         deleted_keys: set[str] = set()
@@ -2143,6 +2219,7 @@ def operate_items(
                 next_note_dict.pop(old_key, None)
                 next_lora_dict.pop(old_key, None)
                 next_settings_dict.pop(old_key, None)
+                next_nai_dict.pop(old_key, None)
             if action == "delete" or target_path is None:
                 deleted_keys.add(old_key)
                 return
@@ -2158,6 +2235,7 @@ def operate_items(
             next_settings_dict[new_key] = _copy_settings(
                 original_settings_dict.get(old_key)
             )
+            next_nai_dict[new_key] = _copy_nai(original_nai_dict.get(old_key))
             if action == "move":
                 key_moves[old_key] = new_key
             else:
@@ -2219,6 +2297,7 @@ def operate_items(
         _note_dict = next_note_dict
         _lora_dict = next_lora_dict
         _settings_dict = next_settings_dict
+        _nai_dict = next_nai_dict
         _folder_dict = next_folder_dict
         _folder_display_paths = next_folder_displays
 
@@ -2394,6 +2473,11 @@ def get_entry(key: str) -> Optional[dict]:
                         or {}
                     )
                 ),
+                "nai": (
+                    empty_nai_payload()
+                    if is_txt
+                    else _copy_nai(_nai_dict.get(n))
+                ),
                 "lines": list(preview_options),
                 "truncated": is_txt and len(options) > len(preview_options),
                 "capabilities": _entry_capabilities(entry_format),
@@ -2457,9 +2541,10 @@ def _update_json_entry_locked(
     models: Optional[list[dict[str, Any]]],
     parameters: Optional[dict[str, Any]],
     double_sample_parameters: Optional[dict[str, Any]],
+    nai: Any,
 ) -> dict:
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict, _nai_dict
     global _folder_display_paths
 
     current_content = _file_dict[normalized_key][0]
@@ -2467,9 +2552,13 @@ def _update_json_entry_locked(
     current_note = _note_dict.get(normalized_key, "")
     current_lora = dict(_lora_dict.get(normalized_key) or empty_lora_payload())
     current_settings = _copy_settings(_settings_dict.get(normalized_key))
-    next_content = _normalize_txt_text(content) if content is not None else current_content
-    if content is not None and not next_content:
-        raise ValueError(tr("提示词内容不能为空"))
+    current_nai = _copy_nai(_nai_dict.get(normalized_key))
+    if nai is _NAI_UNSET:
+        current_nai = _copy_nai(_read_json_prompt(source_path).get("nai"))
+    if content is not None:
+        next_content = _normalize_txt_text(content) or ""
+    else:
+        next_content = current_content
     next_negative = (
         _normalize_optional_prompt(negative) if negative is not None else current_negative
     )
@@ -2496,6 +2585,13 @@ def _update_json_entry_locked(
             else dict(current_settings["double_sample_parameters"])
         ),
     }
+    next_nai = (
+        normalize_nai_payload(nai)
+        if nai is not _NAI_UNSET
+        else current_nai
+    )
+    if not card_has_positive_prompt(next_content, next_nai):
+        raise ValueError(tr("提示词内容不能为空"))
 
     target_name = _validated_entry_name(name) if name is not None else source_path.stem
     target_path = source_path.with_name(f"{target_name}.json")
@@ -2521,6 +2617,8 @@ def _update_json_entry_locked(
         or next_note != current_note
         or next_lora != current_lora
         or next_settings != current_settings
+        or next_nai != current_nai
+        or nai is not _NAI_UNSET
     )
     key_changed = target_key != normalized_key
     content_changed = next_content != current_content
@@ -2548,6 +2646,7 @@ def _update_json_entry_locked(
                 models=next_settings["models"],
                 parameters=next_settings["parameters"],
                 double_sample_parameters=next_settings["double_sample_parameters"],
+                nai=next_nai,
             )
     except Exception:
         for current, original in reversed(renamed):
@@ -2565,6 +2664,7 @@ def _update_json_entry_locked(
         _note_dict.pop(normalized_key, None)
         _lora_dict.pop(normalized_key, None)
         _settings_dict.pop(normalized_key, None)
+        _nai_dict.pop(normalized_key, None)
     _file_dict[target_key] = [next_content]
     _file_paths[target_key] = target_path
     _display_paths[target_key] = display_path
@@ -2572,6 +2672,7 @@ def _update_json_entry_locked(
     _note_dict[target_key] = next_note
     _lora_dict[target_key] = next_lora
     _settings_dict[target_key] = next_settings
+    _nai_dict[target_key] = next_nai
     if key_changed or content_changed:
         known_folders = _known_folder_displays(_folder_display_paths)
         _folder_dict, _folder_display_paths = _rebuild_folder_indexes_from_known(
@@ -2680,10 +2781,11 @@ def update_entry(
     models: Optional[list[dict[str, Any]]] = None,
     parameters: Optional[dict[str, Any]] = None,
     double_sample_parameters: Optional[dict[str, Any]] = None,
+    nai: Any = _NAI_UNSET,
 ) -> dict:
     """Update a prompt file and optionally rename its sidecar previews."""
     global _file_dict, _folder_dict, _file_paths
-    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict
+    global _display_paths, _negative_dict, _note_dict, _lora_dict, _settings_dict, _nai_dict
     global _folder_display_paths
 
     ensure_loaded()
@@ -2697,6 +2799,7 @@ def update_entry(
         and models is None
         and parameters is None
         and double_sample_parameters is None
+        and nai is _NAI_UNSET
     ):
         raise ValueError(tr("没有可保存的修改"))
 
@@ -2718,6 +2821,7 @@ def update_entry(
                 models=models,
                 parameters=parameters,
                 double_sample_parameters=double_sample_parameters,
+                nai=nai,
             )
         if (
             content is not None
@@ -2727,6 +2831,7 @@ def update_entry(
             or models is not None
             or parameters is not None
             or double_sample_parameters is not None
+            or nai is not _NAI_UNSET
         ):
             raise ValueError(tr("TXT Wildcard 内容只能使用外部文本编辑器修改"))
 
@@ -2778,6 +2883,8 @@ def update_entry(
                 _lora_dict[target_key] = _lora_dict.pop(normalized_key)
             if normalized_key in _settings_dict:
                 _settings_dict[target_key] = _settings_dict.pop(normalized_key)
+            if normalized_key in _nai_dict:
+                _nai_dict[target_key] = _nai_dict.pop(normalized_key)
         _file_dict[target_key] = options
         _file_paths[target_key] = target_path
         _display_paths[target_key] = display_path

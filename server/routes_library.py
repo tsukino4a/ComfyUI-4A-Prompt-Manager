@@ -193,6 +193,8 @@ async def handle_update_entry(request: web.Request) -> web.Response:
         if "double_sample_parameters" in data
         else None
     )
+    nai_provided = "nai" in data
+    nai = data.get("nai") if nai_provided else None
     if name is not None and not isinstance(name, str):
         return _json_error("name must be string")
     if content is not None and not isinstance(content, str):
@@ -211,6 +213,8 @@ async def handle_update_entry(request: web.Request) -> web.Response:
         double_sample_parameters, dict
     ):
         return _json_error("double_sample_parameters must be object")
+    if nai_provided and not isinstance(nai, dict):
+        return _json_error("nai must be object")
 
     try:
         entry = await asyncio.to_thread(
@@ -224,6 +228,7 @@ async def handle_update_entry(request: web.Request) -> web.Response:
             models=models,
             parameters=parameters,
             double_sample_parameters=double_sample_parameters,
+            **({"nai": nai} if nai_provided else {}),
         )
     except FileNotFoundError as exc:
         return _json_error(str(exc), 404)
@@ -255,6 +260,8 @@ async def handle_create_entry(request: web.Request) -> web.Response:
     models = data.get("models", None)
     parameters = data.get("parameters", None)
     double_sample_parameters = data.get("double_sample_parameters", None)
+    nai_provided = "nai" in data
+    nai = data.get("nai") if nai_provided else None
     if not all(isinstance(value, str) for value in (folder, name, content, negative, note)):
         return _json_error("folder, name, content, negative and note must be strings")
     if lora is not None and not isinstance(lora, dict):
@@ -267,6 +274,8 @@ async def handle_create_entry(request: web.Request) -> web.Response:
         double_sample_parameters, dict
     ):
         return _json_error("double_sample_parameters must be object")
+    if nai_provided and not isinstance(nai, dict):
+        return _json_error("nai must be object")
 
     try:
         entry = await asyncio.to_thread(
@@ -280,6 +289,7 @@ async def handle_create_entry(request: web.Request) -> web.Response:
             models=models,
             parameters=parameters,
             double_sample_parameters=double_sample_parameters,
+            **({"nai": nai} if nai_provided else {}),
         )
     except FileNotFoundError as exc:
         return _json_error(str(exc), 404)

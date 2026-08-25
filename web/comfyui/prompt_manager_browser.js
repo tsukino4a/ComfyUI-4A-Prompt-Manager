@@ -1,5 +1,5 @@
 import { app } from "../../scripts/app.js";
-import { configureComfyI18n, getComfyLocale } from "./i18n.js?v=1";
+import { configureComfyI18n, getComfyLocale } from "./i18n.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const NODE_CLASS = "Prompt Manager Browser (4A Prompt Manager)";

@@ -1,10 +1,10 @@
 import { app } from "../../scripts/app.js";
-import { configureComfyI18n, pm4aFetch, t } from "./i18n.js?v=1";
+import { configureComfyI18n, pm4aFetch, t } from "./i18n.js";
 import {
   hasSupportedImageTransfer,
   imageFileFromTransfer,
   looksLikeImageFile,
-} from "/pm4a/static/image_drop.js?v=3";
+} from "/pm4a/static/image_drop.js";
 import {
   detectLoraManager,
   entriesToLoraPayload,
@@ -14,7 +14,7 @@ import {
   pickLoraFromManagerItem,
   searchLoraManager,
   withLoraStrength,
-} from "/pm4a/static/lora_library.js?v=2";
+} from "/pm4a/static/lora_library.js";
 
 export const ADD_PROMPT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';

@@ -1,4 +1,4 @@
-import { t } from "./i18n.js?v=13";
+import { t } from "./i18n.js";
 
 export const COMFY_ASSET_INFO_MIME = "application/x-comfy-asset-info";
 
@@ -81,7 +81,14 @@ export async function fetchImageFile(url, fileName) {
 }
 
 export async function imageFileFromTransfer(dataTransfer, { viewPath = "/view" } = {}) {
-  const localFile = Array.from(dataTransfer?.files || []).find(looksLikeImageFile);
+  const directFile = Array.from(dataTransfer?.files || []).find(looksLikeImageFile);
+  const itemFile = directFile ? null : Array.from(dataTransfer?.items || [])
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile?.())
+    .find(looksLikeImageFile);
+  const localFile = directFile || itemFile;
+  if (localFile) return localFile;
+
   let fetchError = null;
 
   const asset = parseComfyAssetInfo(dataTransfer?.getData?.(COMFY_ASSET_INFO_MIME));
@@ -113,7 +120,6 @@ export async function imageFileFromTransfer(dataTransfer, { viewPath = "/view" }
     }
   }
 
-  if (localFile) return localFile;
   if (fetchError) throw fetchError;
   return null;
 }

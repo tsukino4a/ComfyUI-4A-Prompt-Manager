@@ -1,8 +1,8 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { configureComfyI18n, pm4aFetch, t } from "./i18n.js?v=3";
-import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js?v=compact-labels-2";
-import { attachAutocompletePlus } from "./autocomplete_plus_attach.js?v=1";
+import { configureComfyI18n, pm4aFetch, t } from "./i18n.js";
+import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js";
+import { attachAutocompletePlus } from "./autocomplete_plus_attach.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 import {
   TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY,
@@ -21,7 +21,7 @@ import {
   readLoraLoaderText,
   settingsPlanNonempty,
   writeLoraLoaderText,
-} from "./meta_apply_core.js?v=10";
+} from "./meta_apply_core.js";
 
 const NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
 const TRACK_INPUT_PREFIX = "pm4a_track_";

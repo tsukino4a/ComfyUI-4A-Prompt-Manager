@@ -4,8 +4,8 @@ import {
   formatRawMetadataJson,
   parsePromptDocument,
   registerKnownSchedulers,
-} from "/pm4a/static/image_prompt_metadata.js?v=17";
-import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js?v=compact-labels-2";
+} from "/pm4a/static/image_prompt_metadata.js";
+import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js";
 import {
   buildStoredImageUrl,
   imageReferenceFromUpload,
@@ -13,14 +13,15 @@ import {
   normalizeStoredImageReference,
   resolvePromptDisplayRestoreState,
   shouldKeepImportedPromptDisplay,
-} from "./prompt_display_state.js?v=4";
+} from "./prompt_display_state.js";
 import {
   fetchImageFile,
   hasSupportedImageTransfer,
   imageFileFromTransfer,
   looksLikeImageFile,
-} from "/pm4a/static/image_drop.js?v=3";
-import { configureComfyI18n, t } from "./i18n.js?v=1";
+} from "/pm4a/static/image_drop.js";
+import { appendNaiCharacterLines } from "/pm4a/static/nai_settings.js";
+import { configureComfyI18n, t } from "./i18n.js";
 import {
   TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY,
   TARGET_LORA_PROPERTY,
@@ -52,7 +53,7 @@ import {
   setWidgetValue,
   syncBypassSwitchFromDoubleSample,
   withGraphChangeTransaction,
-} from "./meta_apply_core.js?v=10";
+} from "./meta_apply_core.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const DISPLAY_NODE_CLASS = "Prompt Display (4A Prompt Manager)";
@@ -74,6 +75,29 @@ const APPLY_ALL_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" 
 const APPLY_PARAMETERS_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h9M3 12h7M3 18h9M8 4v4M6 10v4M9 16v4M14 12h6M17 9l3 3-3 3"/></svg>';
 const CHEVRON_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>';
 const TRANSLATABLE_SOURCE_LABELS = new Set(["图片", "通用"]);
+
+export function flattenNovelAIForPromptDisplay(payload) {
+  if (payload?.source_type !== "novelai" || !Array.isArray(payload.characters)) {
+    return payload;
+  }
+
+  const positive = appendNaiCharacterLines(payload.positive, payload.characters, "positive");
+  const negative = appendNaiCharacterLines(payload.negative, payload.characters, "negative");
+  const tracks = Array.isArray(payload.tracks)
+    ? payload.tracks.map((track) => ({ ...track }))
+    : [];
+  const positiveTrack = tracks.find((track) => track?.id === "positive") || tracks[0];
+  if (positiveTrack) positiveTrack.text = positive;
+  else if (positive) tracks.push({ id: "positive", name: "正面", text: positive });
+
+  return {
+    ...payload,
+    tracks,
+    positive,
+    negative,
+    characters: [],
+  };
+}
 
 function displaySourceLabel(value) {
   const label = String(value || "图片");
@@ -1409,7 +1433,7 @@ function setupDisplayNode(node) {
     list.innerHTML = "";
     setStatus("");
     syncImagePreview(source, fileName, raw);
-    const payload = parsePromptDocument(raw);
+    const payload = flattenNovelAIForPromptDisplay(parsePromptDocument(raw));
     node.__pm4aPromptDisplayPayload = payload;
     node.__pm4aPromptDisplaySource = source;
     liveButton.hidden = source !== "image";

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -21,12 +22,31 @@ except ImportError:  # standalone preview
 
 logger = logging.getLogger("ComfyUI4APromptManager")
 
-CACHE_VERSION = 1
-CACHE_FILE_NAME = "index-cache-v1.json"
+CACHE_VERSION = 2
+CACHE_FILE_NAME = "index-cache-v2.json"
+_VERSIONED_CACHE_PATTERN = re.compile(r"^index-cache-v(\d+)\.json$")
 
 
 def cache_path(root: Path) -> Path:
     return metadata_dir(root) / CACHE_FILE_NAME
+
+
+def _cleanup_legacy_snapshots(root: Path) -> None:
+    """Remove lower-version caches only after the current cache is installed."""
+    directory = metadata_dir(root)
+    try:
+        candidates = tuple(directory.glob("index-cache-v*.json"))
+    except OSError as exc:
+        logger.warning("Could not list legacy index caches under %s: %s", directory, exc)
+        return
+    for candidate in candidates:
+        match = _VERSIONED_CACHE_PATTERN.fullmatch(candidate.name)
+        if match is None or int(match.group(1)) >= CACHE_VERSION:
+            continue
+        try:
+            candidate.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Could not remove legacy index cache %s: %s", candidate, exc)
 
 
 def invalidate(root: Path) -> None:
@@ -180,6 +200,7 @@ def write_snapshot(root: Path, snapshot: dict[str, Any]) -> None:
             json.dump(snapshot, handle, ensure_ascii=False, separators=(",", ":"))
             handle.write("\n")
         os.replace(temporary, path)
+        _cleanup_legacy_snapshots(root)
     except Exception:
         temporary.unlink(missing_ok=True)
         raise
@@ -202,6 +223,7 @@ def read_snapshot(root: Path) -> Optional[dict[str, Any]]:
         return None
     if not isinstance(raw.get("fingerprint"), dict):
         return None
+    _cleanup_legacy_snapshots(root)
     return raw
 
 
