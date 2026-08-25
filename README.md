@@ -2,6 +2,8 @@
 
 [中文说明](README.zh-CN.md)
 
+Companion NovelAI generation plugin: [ComfyUI-4A-NovelAI](https://github.com/tsukino4a/ComfyUI-4A-NovelAI)
+
 Chinese video guide (Bilibili): https://www.bilibili.com/video/BV1DWKv6NE6t  
 Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
@@ -15,7 +17,7 @@ Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards an
 **1.4.0**
 
 - Adds NovelAI (NAI) Browser mode, sparse `nai` card fields, NAI image metadata reading, and sending prompts/settings to external NAI nodes
-- Moves generation nodes into standalone `ComfyUI-4A-NovelAI`; Prompt Manager still works without that plugin
+- Moves generation nodes into standalone [ComfyUI-4A-NovelAI](https://github.com/tsukino4a/ComfyUI-4A-NovelAI); Prompt Manager still works without that plugin
 - Converts Comfy / NAI weights only when the active mode has no native text; detail view, copy, send, and Wildcard expansion share the same rules
 - Flattens NAI characters into `charN:` lines when a card is used in Comfy
 - Writes edits back to the current mode only, without overwriting the other mode's native text
@@ -49,7 +51,7 @@ Full rules and examples: [`docs/wildcard-nesting.md`](docs/wildcard-nesting.md) 
 
 ### NovelAI (NAI) prompt and metadata management
 
-NAI generation nodes have moved to the standalone `ComfyUI-4A-NovelAI` plugin. This project retains prompt-card storage, the Wildcard library, weight-display conversion, image-metadata reading/apply, and the bridge that sends prompts and sparse settings to NAI nodes. PM4A still works when the generation plugin is not installed.
+NAI generation nodes have moved to the standalone [ComfyUI-4A-NovelAI](https://github.com/tsukino4a/ComfyUI-4A-NovelAI) plugin. This project retains prompt-card storage, the Wildcard library, weight-display conversion, image-metadata reading/apply, and the bridge that sends prompts and sparse settings to NAI nodes. PM4A still works when the generation plugin is not installed.
 
 - JSON cards keep generic `content` / `negative` separate from native `nai.content` / `nai.negative`. Browser prefers the active mode's native text and only converts the other representation as a temporary fallback; edits are saved back to the active mode so `{}`, `[]`, and `N::text::` are not misinterpreted. The detail labels mark whether the visible text is native or a converted preview.
 - `nai.parameters` stores only sparse `steps`, `cfg`, `sampler`, `scheduler`, `cfg_rescale`, `width`, and `height`. Ordered `nai.characters` store each character's positive/negative text plus optional per-character `x/y`; model and generation seed remain on the standalone generation nodes.
@@ -125,7 +127,7 @@ Select models in template workflows before running if loaders are empty or point
 
 - **Required extra:** [`piexif`](https://pypi.org/project/piexif/) (`>=1.1.3`) for JPEG/WebP EXIF when using Image Saver / preview EXIF
 - Pillow, NumPy, aiohttp are provided by ComfyUI
-- **Optional NAI generation plugin:** `ComfyUI-4A-NovelAI`; PM4A no longer registers NAI generation nodes
+- **Optional NAI generation plugin:** [ComfyUI-4A-NovelAI](https://github.com/tsukino4a/ComfyUI-4A-NovelAI); PM4A no longer registers NAI generation nodes
 
 Without `piexif`, PNG save still works; JPEG/WebP metadata write will error (preview WebP may skip EXIF silently).
 
