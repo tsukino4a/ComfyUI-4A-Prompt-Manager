@@ -123,3 +123,40 @@ export async function imageFileFromTransfer(dataTransfer, { viewPath = "/view" }
   if (fetchError) throw fetchError;
   return null;
 }
+
+export function bindOfficialImageDrop(root, { app, node, onDrop }) {
+  const setGlow = (active) => {
+    if (active) app.dragOverNode = node;
+    else if (app.dragOverNode?.id === node.id) app.dragOverNode = null;
+    node.setDirtyCanvas?.(false, true);
+    app.canvas?.setDirty?.(false, true);
+  };
+  const accept = (event) => {
+    if (!hasSupportedImageTransfer(event?.dataTransfer)) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    setGlow(true);
+    return true;
+  };
+  root.addEventListener("dragenter", accept);
+  root.addEventListener("dragover", accept);
+  root.addEventListener("dragleave", (event) => {
+    if (!root.contains?.(event.relatedTarget)) setGlow(false);
+  });
+  root.addEventListener("drop", (event) => {
+    if (!accept(event)) return undefined;
+    setGlow(false);
+    return onDrop(event.dataTransfer);
+  });
+
+  const originalOnDragDrop = node.onDragDrop;
+  node.onDragDrop = function (event) {
+    if (hasSupportedImageTransfer(event?.dataTransfer)) return onDrop(event.dataTransfer);
+    return originalOnDragDrop?.apply(this, arguments) ?? false;
+  };
+  const originalOnDragOver = node.onDragOver;
+  node.onDragOver = function (event) {
+    if (hasSupportedImageTransfer(event?.dataTransfer)) return true;
+    return originalOnDragOver?.apply(this, arguments) ?? false;
+  };
+}

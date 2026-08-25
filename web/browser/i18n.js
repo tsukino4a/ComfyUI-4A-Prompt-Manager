@@ -676,7 +676,6 @@ export const EN_MESSAGES = Object.freeze({
   "仅支持常见图片格式（PNG、JPEG、WebP、GIF 等）": "Only common image formats are supported (PNG, JPEG, WebP, GIF, etc.)",
   "图片元数据读取失败：{status}": "Failed to read image metadata: {status}",
   "图片中没有识别到正面或负面提示词": "No positive or negative prompt was recognized in the image",
-  "图片持久化失败：{status}": "Failed to persist the image: {status}",
   "图片上传成功，但返回的文件引用无效": "Image uploaded, but the returned file reference is invalid",
   "完整图片 Meta": "Full image metadata",
   "完整 Meta": "Full metadata",

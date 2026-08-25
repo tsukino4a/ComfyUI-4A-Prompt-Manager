@@ -2,14 +2,16 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { parsePromptDocument } from "/pm4a/static/image_prompt_metadata.js";
 import {
-  fetchImageFile,
-  hasSupportedImageTransfer,
+  bindOfficialImageDrop,
   imageFileFromTransfer,
   looksLikeImageFile,
 } from "/pm4a/static/image_drop.js";
 import {
   buildStoredImageUrl,
+  imageReferenceFromComboValue,
+  imageReferenceLabel,
   normalizeStoredImageReference,
+  uploadInputImage,
 } from "./prompt_display_state.js";
 import { configureComfyI18n, t } from "./i18n.js";
 import {
@@ -20,6 +22,8 @@ import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const NODE_CLASS = "Meta Apply (4A Prompt Manager)";
 const PROMPT_DISPLAY_CLASS = "Prompt Display (4A Prompt Manager)";
+const IMAGE_REF_PROPERTY = "pm4a_imported_image_ref";
+const MIN_WIDGET_HEIGHT = 160;
 
 function settingsApplyHostNode() {
   const graph = app.graph;
@@ -37,12 +41,9 @@ function settingsApplyHostNode() {
   return { graph, properties: {} };
 }
 
-const TOP_PAD_PX = 8;
-
 const APPLY_FLAG_WIDGETS = {
   applyModel: ["自动应用模型", "apply_model"],
   applyLora: ["自动应用 LoRA", "apply_lora"],
-  // Legacy combined toggle kept for older workflows until the node is recreated.
   applyModelLora: ["自动应用模型/LoRA", "apply_model_lora"],
   applyParameters: ["自动应用推理参数", "apply_parameters"],
   applyPrompt: ["自动应用提示词", "apply_prompt"],
@@ -70,22 +71,52 @@ function ensureMetaApplyStyles() {
   const style = document.createElement("style");
   style.id = "pm4a-meta-apply-styles";
   style.textContent = `
-    .pm4a-meta-apply-top-pad {
-      width: 100%;
-      height: ${TOP_PAD_PX}px;
-      margin: 0;
-      padding: 0;
-      pointer-events: none;
-    }
     .pm4a-meta-apply-root {
       width: 100%;
+      height: 100%;
+      min-height: 0;
       box-sizing: border-box;
-      padding: 4px 14px 2px;
+      padding: 4px 10px 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow: hidden;
       color: #c9ced3;
       font: 12px/1.35 system-ui, sans-serif;
     }
     .pm4a-meta-apply-root * { box-sizing: border-box; }
+    .pm4a-meta-apply-preview {
+      flex: 1 1 auto;
+      min-height: 0;
+      border: 1px solid #464a50;
+      border-radius: 6px;
+      background: #141618;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .pm4a-meta-apply-preview img {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      object-fit: contain;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .pm4a-meta-apply-empty { max-width: 180px; color: #858c94; text-align: center; }
+    .pm4a-meta-apply-pick {
+      flex: 0 0 auto;
+      height: 26px;
+      border: 0;
+      border-radius: 4px;
+      color: #c9cdd1;
+      background: #3a3e43;
+      cursor: pointer;
+      font: inherit;
+    }
+    .pm4a-meta-apply-pick:hover { color: #fff; background: #464b51; }
     .pm4a-meta-apply-status {
+      flex: 0 0 auto;
       min-height: 28px;
       padding: 5px 8px;
       border: 1px solid #464a50;
@@ -99,102 +130,105 @@ function ensureMetaApplyStyles() {
   document.head.appendChild(style);
 }
 
-/** Put a few pixels between the node title and the official image combo. */
-function ensureTopPadding(node) {
-  if (node.__pm4aMetaApplyTopPad) return;
-  const pad = document.createElement("div");
-  pad.className = "pm4a-meta-apply-top-pad";
-  const widget = node.addDOMWidget("pm4a_meta_apply_top_pad", "pm4a_meta_apply_top_pad", pad, withSyncedDomWidth({
-    serialize: false,
-    hideOnZoom: false,
-    margin: 0,
-    getMinHeight: () => TOP_PAD_PX,
-    getMaxHeight: () => TOP_PAD_PX,
-  }));
-  const list = node.widgets;
-  const index = list?.indexOf?.(widget) ?? -1;
-  if (index > 0) {
-    list.splice(index, 1);
-    list.unshift(widget);
-  }
-  node.__pm4aMetaApplyTopPad = true;
-}
-
 function viewPath() {
-  return app.api?.apiURL?.("/view") || "/view";
+  return api.fileURL?.("/view") || app.api?.apiURL?.("/view") || "/view";
 }
 
-function imageReferenceFromWidgetValue(value) {
-  // Official image combo values look like:
-  //   "folder/file.webp [output]"
-  // Matching folder_paths.annotated_filepath(): strip " [input|output|temp]".
-  let raw = String(value || "").trim().replaceAll("\\", "/");
-  if (!raw) return null;
-
-  let type = "input";
-  const annotated = raw.match(/^(.*) \[(input|output|temp)\]$/i);
-  if (annotated) {
-    raw = annotated[1].trim();
-    type = annotated[2].toLowerCase();
-  }
-
-  const slash = raw.lastIndexOf("/");
-  if (slash < 0) {
-    return normalizeStoredImageReference({ filename: raw, subfolder: "", type });
-  }
-  return normalizeStoredImageReference({
-    filename: raw.slice(slash + 1),
-    subfolder: raw.slice(0, slash),
-    type,
-  });
+function hideFilenameSlot(widget) {
+  if (!widget) return;
+  widget.hidden = true;
+  widget.serialize = true;
+  if (widget.element) widget.element.style.display = "none";
+  if (widget.inputEl) widget.inputEl.style.display = "none";
+  widget.computeSize = () => [0, -4];
 }
 
-function imageWidget(node) {
+function imageSlot(node) {
   return node.widgets?.find((widget) => widget.name === "image") || null;
 }
 
+function storedImageReference(node) {
+  return normalizeStoredImageReference(node.properties?.[IMAGE_REF_PROPERTY])
+    || imageReferenceFromComboValue(imageSlot(node)?.value);
+}
+
+function writeImageReference(node, reference) {
+  node.properties = node.properties || {};
+  node.properties[IMAGE_REF_PROPERTY] = reference;
+  const widget = imageSlot(node);
+  if (widget) widget.value = imageReferenceLabel(reference);
+  node.graph?.change?.();
+}
+
 function setupMetaApplyNode(node) {
-  if (node.__pm4aMetaApplyReady) return node.__pm4aMetaApplyApi || null;
+  if (node.__pm4aMetaApplyReady) return;
   node.__pm4aMetaApplyReady = true;
   configureComfyI18n(app);
   ensureMetaApplyStyles();
-  ensureTopPadding(node);
+  hideFilenameSlot(imageSlot(node));
 
   const main = document.createElement("div");
   main.className = "pm4a-meta-apply-root";
   main.addEventListener("pointerdown", (event) => event.stopPropagation());
 
+  const preview = document.createElement("div");
+  preview.className = "pm4a-meta-apply-preview";
+  const previewImage = document.createElement("img");
+  previewImage.alt = t("拖入图片预览");
+  previewImage.draggable = false;
+  previewImage.hidden = true;
+  const previewEmpty = document.createElement("div");
+  previewEmpty.className = "pm4a-meta-apply-empty";
+  previewEmpty.textContent = t("选择或拖入预览图");
+  preview.append(previewImage, previewEmpty);
+
+  const pick = document.createElement("button");
+  pick.type = "button";
+  pick.className = "pm4a-meta-apply-pick";
+  pick.textContent = t("选择或拖入预览图");
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.avif";
+  fileInput.hidden = true;
+
   const status = document.createElement("div");
   status.className = "pm4a-meta-apply-status";
   status.setAttribute("aria-live", "polite");
-  status.textContent = t("等待图片");
-  main.append(status);
+  main.append(pick, fileInput, status, preview);
 
-  let acceptWidgetChanges = false;
-  /** Monotonic id so a newer drop/selection can supersede an in-flight apply. */
   let applyGeneration = 0;
-  /** Last image combo value restored/applied; blocks workflow-restore echoes. */
-  let armedImageValue = null;
-  /**
-   * Set by real user actions (drop / click image widget). Allows re-applying
-   * the same combo path — restore callbacks must NOT set this.
-   */
-  let allowSameImageApply = false;
-
   const setStatus = (message) => {
     const text = message || t("等待图片");
     status.textContent = text;
     status.title = text;
   };
+  setStatus(t("等待图片"));
 
-  const normalizeImageValue = (value) => String(value || "").trim();
-
-  const armImageValue = (value = imageWidget(node)?.value) => {
-    armedImageValue = normalizeImageValue(value);
+  const showStoredPreview = (reference) => {
+    const url = buildStoredImageUrl(reference, viewPath());
+    if (!url) {
+      previewImage.removeAttribute("src");
+      previewImage.hidden = true;
+      previewEmpty.hidden = false;
+      previewEmpty.textContent = t("选择或拖入预览图");
+      return;
+    }
+    previewImage.src = url;
+    previewImage.hidden = false;
+    previewEmpty.hidden = true;
   };
+  previewImage.addEventListener("error", () => {
+    previewImage.hidden = true;
+    previewEmpty.hidden = false;
+    previewEmpty.textContent = t("预览文件不可用，请重新拖入图片");
+  });
 
-  const noteUserImageAction = () => {
-    allowSameImageApply = true;
+  const restorePreview = () => {
+    hideFilenameSlot(imageSlot(node));
+    const reference = storedImageReference(node);
+    if (!reference) return;
+    writeImageReference(node, reference);
+    showStoredPreview(reference);
   };
 
   const applyImage = async (file) => {
@@ -205,6 +239,13 @@ function setupMetaApplyNode(node) {
     const generation = ++applyGeneration;
     setStatus(t("正在读取并应用元数据…"));
     try {
+      const reference = await uploadInputImage(
+        file,
+        (url, init) => api.fetchApi(url, init),
+      );
+      if (generation !== applyGeneration) return;
+      writeImageReference(node, reference);
+      showStoredPreview(reference);
       const snapshot = await readImagePromptSnapshot(file);
       if (generation !== applyGeneration) return;
       const payload = parsePromptDocument(snapshot.promptJson);
@@ -214,140 +255,49 @@ function setupMetaApplyNode(node) {
       setStatus(result.message);
     } catch (error) {
       if (generation !== applyGeneration) return;
-      setStatus(String(error.message || error));
+      setStatus(t(String(error.message || error)));
     }
   };
 
-  const applyFromWidgetValue = async (value) => {
-    const reference = imageReferenceFromWidgetValue(value);
-    if (!reference) {
-      armImageValue("");
-      setStatus(t("等待图片"));
-      return;
+  const importTransfer = async (dataTransfer) => {
+    try {
+      const file = await imageFileFromTransfer(dataTransfer, { viewPath: viewPath() });
+      if (!file) return false;
+      await applyImage(file);
+      return true;
+    } catch (error) {
+      setStatus(t(String(error.message || error)));
+      return true;
     }
-    const url = buildStoredImageUrl(reference, viewPath());
-    const file = await fetchImageFile(url, reference.filename);
-    await applyImage(file);
-    armImageValue(value);
   };
 
-  const maybeApplyFromWidget = (value) => {
-    if (!acceptWidgetChanges) return;
-    const next = normalizeImageValue(value);
-    const sameAsArmed = next === armedImageValue;
-    // Workflow restore replays the same combo → skip. User drop/re-pick sets
-    // allowSameImageApply so the same path still applies.
-    if (sameAsArmed && !allowSameImageApply) return;
-    allowSameImageApply = false;
-    if (!next) {
-      armImageValue("");
-      setStatus(t("等待图片"));
-      return;
-    }
-    void applyFromWidgetValue(value).catch((error) => {
-      setStatus(String(error.message || error));
-    });
-  };
+  pick.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (file) void applyImage(file);
+  });
 
-  const widget = imageWidget(node);
-  if (widget) {
-    const previousCallback = widget.callback;
-    widget.callback = function (value) {
-      const result = previousCallback?.apply(this, arguments);
-      maybeApplyFromWidget(value);
-      return result;
-    };
-    armImageValue(widget.value);
-  }
+  bindOfficialImageDrop(main, { app, node, onDrop: importTransfer });
 
-  const originalOnDragOver = node.onDragOver?.bind(node);
-  node.onDragOver = function (event) {
-    if (hasSupportedImageTransfer(event?.dataTransfer)) return true;
-    return originalOnDragOver?.(event) ?? false;
-  };
-
-  const originalOnDragDrop = node.onDragDrop?.bind(node);
-  node.onDragDrop = function (event) {
-    const isImageDrop = hasSupportedImageTransfer(event?.dataTransfer);
-    if (!isImageDrop) return originalOnDragDrop?.(event) ?? false;
-
-    noteUserImageAction();
-    // Resolve the dropped file BEFORE Comfy consumes the transfer. A microtask
-    // that re-reads the combo is racy: the widget often still holds the old path.
-    const pendingFile = imageFileFromTransfer(event.dataTransfer, { viewPath: viewPath() });
-    const result = originalOnDragDrop?.(event);
-    void pendingFile
-      .then(async (file) => {
-        if (file) {
-          allowSameImageApply = false;
-          await applyImage(file);
-          armImageValue(imageWidget(node)?.value);
-          return;
-        }
-        // No local/asset file handle — wait for the combo to settle, then apply.
-        setTimeout(() => {
-          maybeApplyFromWidget(imageWidget(node)?.value);
-        }, 50);
-      })
-      .catch((error) => {
-        setStatus(String(error.message || error));
-      });
-    return result ?? false;
-  };
-
-  const originalOnMouseDown = node.onMouseDown?.bind(node);
-  node.onMouseDown = function (event, pos, canvas) {
-    const image = imageWidget(node);
-    const y = Array.isArray(pos) ? Number(pos[1]) : NaN;
-    const top = Number(image?.last_y);
-    // Official image+upload widget is tall (preview). Treat clicks in that band
-    // as user intent so re-picking the same file still applies.
-    if (image && Number.isFinite(y) && Number.isFinite(top) && y >= top - 4 && y <= top + 140) {
-      noteUserImageAction();
-    }
-    return originalOnMouseDown?.(event, pos, canvas);
-  };
-
-  node.addDOMWidget("pm4a_meta_apply_ui", "pm4a_meta_apply", main, withSyncedDomWidth({
+  let uiWidget = null;
+  uiWidget = node.addDOMWidget("pm4a_meta_apply_ui", "pm4a_meta_apply", main, withSyncedDomWidth({
     serialize: false,
     hideOnZoom: false,
     margin: 0,
-    getMinHeight: () => 40,
-    getMaxHeight: () => 40,
+    getMinHeight: () => MIN_WIDGET_HEIGHT,
+    getMaxHeight: () => {
+      const measuredTop = Number(uiWidget?.last_y);
+      const widgetTop = Number.isFinite(measuredTop) && measuredTop > 0 ? measuredTop : 55;
+      return Math.max(MIN_WIDGET_HEIGHT, Number(node.size?.[1] || 360) - widgetTop - 8);
+    },
   }));
   node.resizable = true;
-  if (!Array.isArray(node.size) || node.size[1] < 310) {
-    node.setSize([315, 310]);
+  if (!Array.isArray(node.size) || node.size[1] < 360) {
+    node.setSize([315, 360]);
   }
-
-  const api = {
-    applyFromWidgetValue: (value) => applyFromWidgetValue(value).catch((error) => {
-      setStatus(String(error.message || error));
-    }),
-    enableWidgetChanges: () => {
-      acceptWidgetChanges = true;
-    },
-    disableWidgetChanges: () => {
-      acceptWidgetChanges = false;
-      allowSameImageApply = false;
-    },
-    /** Remember current combo without applying (workflow load / tab switch). */
-    armCurrentImage: () => {
-      allowSameImageApply = false;
-      armImageValue();
-    },
-  };
-  node.__pm4aMetaApplyApi = api;
-
-  // Freshly created nodes never hit onConfigure with a restored image; arm after
-  // the first paint so the initial combo sync does not look like a user change.
-  queueMicrotask(() => {
-    armImageValue();
-    allowSameImageApply = false;
-    acceptWidgetChanges = true;
-  });
-
-  return api;
+  node.__pm4aMetaApplyRestorePreview = restorePreview;
+  restorePreview();
 }
 
 app.registerExtension({
@@ -398,18 +348,8 @@ app.registerExtension({
     const originalConfigured = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const result = originalConfigured?.apply(this, arguments);
-      const api = setupMetaApplyNode(this);
-      // Workflow load / tab switch restores the image combo. That must NOT
-      // re-apply metadata into the scheduler (it stomps live edits / wildcards).
-      // Apply only when the user actually changes the image selection.
-      if (api) {
-        api.disableWidgetChanges();
-        api.armCurrentImage();
-        queueMicrotask(() => {
-          api.armCurrentImage();
-          api.enableWidgetChanges();
-        });
-      }
+      setupMetaApplyNode(this);
+      this.__pm4aMetaApplyRestorePreview?.();
       return result;
     };
   },

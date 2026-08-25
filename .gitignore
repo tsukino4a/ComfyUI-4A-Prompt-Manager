@@ -1,6 +1,7 @@
 # Python caches and test artifacts
 __pycache__/
 *.py[cod]
+tests/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

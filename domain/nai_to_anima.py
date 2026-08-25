@@ -258,20 +258,4 @@ def collapse_group(group: GroupNode) -> tuple[float, list[Node]]:
 
 
 def format_weight(factor: float) -> str:
-    if factor < 0:
-        return f"{factor:.2f}"
-    return f"{adjust_weight(factor):.2f}"
-
-
-def adjust_weight(factor: float) -> float:
-    if factor >= 2:
-        adjusted = 1 + (factor - 1) * 1.2
-    elif factor >= 1.2:
-        adjusted = 1 + (factor - 1) * 1.5
-    elif factor > 1:
-        adjusted = 1 + (factor - 1) * 2.5
-    elif factor >= 0.8:
-        adjusted = 1 - (1 - factor) * 2.5
-    else:
-        adjusted = 1 - (1 - factor) * 1.5
-    return max(0.05, min(3.0, adjusted))
+    return f"{factor:.2f}"

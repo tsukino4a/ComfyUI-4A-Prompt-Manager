@@ -42,16 +42,37 @@ def _lora_text_of(value: Any) -> str:
     return ""
 
 
-def _comfy_card_text(primary: str, nai_text: Any) -> str:
-    """Prefer stored Comfy text, otherwise derive a non-persistent NAI fallback."""
+def _append_nai_character_lines(base: Any, characters: Any, key: str) -> str:
+    """Match send-to-Comfy flattening: ``charN:`` keeps the original index."""
+    lines = [base.strip() if isinstance(base, str) else ""]
+    if isinstance(characters, (list, tuple)):
+        for index, character in enumerate(characters):
+            if not isinstance(character, dict):
+                continue
+            text = character.get(key)
+            if isinstance(text, str) and text.strip():
+                lines.append(f"char{index + 1}: {text.strip()}")
+    return "\n".join(line for line in lines if line)
+
+
+def _comfy_card_text(primary: str, nai: Any, *, field: str) -> str:
+    """Prefer stored Comfy text; otherwise flatten NAI text plus characters."""
     if isinstance(primary, str) and primary.strip():
         return primary
-    if not isinstance(nai_text, str) or not nai_text.strip():
+    payload = nai if isinstance(nai, Mapping) else {}
+    text_key = "negative" if field == "negative" else "content"
+    character_key = "negative" if field == "negative" else "positive"
+    flattened = _append_nai_character_lines(
+        payload.get(text_key),
+        payload.get("characters"),
+        character_key,
+    )
+    if not flattened:
         return ""
     try:
-        return nai_to_anima.convert_prompt_tolerant(nai_text).text
+        return nai_to_anima.convert_prompt_tolerant(flattened).text
     except (TypeError, ValueError):
-        return nai_text
+        return flattened
 
 
 def _settings_of(value: Any) -> dict[str, Any]:
@@ -155,11 +176,13 @@ class LibraryWildcardResolver:
                     key=key,
                     content=_comfy_card_text(
                         content,
-                        nai.get(key, {}).get("content"),
+                        nai.get(key),
+                        field="content",
                     ),
                     negative=_comfy_card_text(
                         negatives.get(key, ""),
-                        nai.get(key, {}).get("negative"),
+                        nai.get(key),
+                        field="negative",
                     ),
                     lora_text=_lora_text_of(loras.get(key)),
                     models=_settings_of(settings.get(key)).get("models") or (),

@@ -16,10 +16,6 @@ export function normalizeStoredImageReference(value) {
   return { filename, subfolder, type };
 }
 
-export function imageReferenceFromUpload(payload) {
-  return normalizeStoredImageReference(payload);
-}
-
 export function imageReferenceLabel(value) {
   const reference = normalizeStoredImageReference(value);
   if (!reference) return "";
@@ -37,6 +33,40 @@ export function buildStoredImageUrl(value, viewPath = "/view") {
     type: reference.type,
   });
   return `${viewPath}?${query.toString()}`;
+}
+
+export function imageReferenceFromComboValue(value) {
+  let raw = String(value || "").trim().replaceAll("\\", "/");
+  if (!raw) return null;
+  let type = "input";
+  const annotated = raw.match(/^(.*) \[(input|output|temp)\]$/i);
+  if (annotated) {
+    raw = annotated[1].trim();
+    type = annotated[2].toLowerCase();
+  }
+  const slash = raw.lastIndexOf("/");
+  if (slash < 0) {
+    return normalizeStoredImageReference({ filename: raw, subfolder: "", type });
+  }
+  return normalizeStoredImageReference({
+    filename: raw.slice(slash + 1),
+    subfolder: raw.slice(0, slash),
+    type,
+  });
+}
+
+export async function uploadInputImage(file, fetchApi) {
+  const form = new FormData();
+  form.append("image", file, file.name || "imported-image");
+  form.append("type", "input");
+  const response = await fetchApi("/upload/image", { method: "POST", body: form });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || `图片持久化失败：${response.status}`);
+  }
+  const reference = normalizeStoredImageReference(payload);
+  if (!reference) throw new Error("图片上传成功，但返回的文件引用无效");
+  return reference;
 }
 
 export function resolvePromptDisplayRestoreState({

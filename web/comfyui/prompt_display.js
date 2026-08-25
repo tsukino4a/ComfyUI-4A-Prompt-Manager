@@ -8,15 +8,15 @@ import {
 import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js";
 import {
   buildStoredImageUrl,
-  imageReferenceFromUpload,
   imageReferenceLabel,
   normalizeStoredImageReference,
   resolvePromptDisplayRestoreState,
   shouldKeepImportedPromptDisplay,
+  uploadInputImage,
 } from "./prompt_display_state.js";
 import {
+  bindOfficialImageDrop,
   fetchImageFile,
-  hasSupportedImageTransfer,
   imageFileFromTransfer,
   looksLikeImageFile,
 } from "/pm4a/static/image_drop.js";
@@ -276,21 +276,7 @@ function writeLastConnectedJson(node, value) {
 }
 
 function viewPath() {
-  return app.api?.apiURL?.("/view") || "/view";
-}
-
-async function uploadInputImage(file) {
-  const form = new FormData();
-  form.append("image", file, file.name || "imported-image");
-  form.append("type", "input");
-  const response = await api.fetchApi("/upload/image", { method: "POST", body: form });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.error || t("图片持久化失败：{status}", { status: response.status }));
-  }
-  const reference = imageReferenceFromUpload(payload);
-  if (!reference) throw new Error(t("图片上传成功，但返回的文件引用无效"));
-  return reference;
+  return api.fileURL?.("/view") || app.api?.apiURL?.("/view") || "/view";
 }
 
 function openRawMetadataModal(metadata, fileName = "") {
@@ -599,8 +585,7 @@ function setupDisplayNode(node) {
   };
   const showStoredImagePreview = (reference, metadata = null) => {
     const normalized = normalizeStoredImageReference(reference);
-    const viewPath = api.fileURL?.("/view") || "/view";
-    const url = buildStoredImageUrl(normalized, viewPath);
+    const url = buildStoredImageUrl(normalized, viewPath());
     if (!normalized || !url) return false;
     clearImagePreview(false);
     previewPersistentUrl = url;
@@ -650,10 +635,7 @@ function setupDisplayNode(node) {
     const storedReference = normalizeStoredImageReference(
       node.properties?.[IMPORTED_IMAGE_PROPERTY],
     );
-    const storedUrl = buildStoredImageUrl(
-      storedReference,
-      api.fileURL?.("/view") || "/view",
-    );
+    const storedUrl = buildStoredImageUrl(storedReference, viewPath());
     if (storedUrl && previewPersistentUrl === storedUrl) {
       preview.hidden = false;
       splitter.hidden = false;
@@ -1611,7 +1593,7 @@ function setupDisplayNode(node) {
     }
     try {
       const snapshot = await readImagePromptSnapshot(file);
-      const imageReference = await uploadInputImage(file);
+      const imageReference = await uploadInputImage(file, (url, init) => api.fetchApi(url, init));
       const raw = snapshot.promptJson;
       const fileName = imageReferenceLabel(imageReference);
       rememberPreviewFile(fileName, raw, file, snapshot.metadata);
@@ -1643,46 +1625,7 @@ function setupDisplayNode(node) {
     }
   };
 
-  const setOfficialDragGlow = (active) => {
-    if (active) app.dragOverNode = node;
-    else if (app.dragOverNode?.id === node.id) app.dragOverNode = null;
-    node.setDirtyCanvas?.(false, true);
-    app.canvas?.setDirty?.(false, true);
-  };
-
-  // The display body is a DOM overlay above the canvas, so keep a scoped DOM
-  // handler for that area. It exists only inside this Prompt Display node.
-  const acceptsDisplayDrop = (event) => {
-    if (!hasSupportedImageTransfer(event?.dataTransfer)) return false;
-    event.preventDefault();
-    event.stopPropagation();
-    setOfficialDragGlow(true);
-    return true;
-  };
-  main.addEventListener("dragenter", acceptsDisplayDrop);
-  main.addEventListener("dragover", acceptsDisplayDrop);
-  main.addEventListener("dragleave", (event) => {
-    if (!main.contains(event.relatedTarget)) setOfficialDragGlow(false);
-  });
-  main.addEventListener("drop", async (event) => {
-    if (!acceptsDisplayDrop(event)) return;
-    setOfficialDragGlow(false);
-    await importTransfer(event.dataTransfer);
-  });
-
-  // Match ComfyUI's official Load Image behavior: the canvas only delegates the
-  // drop when the cursor is currently over this specific node.
-  const originalOnDragDrop = node.onDragDrop;
-  node.onDragDrop = async function (event) {
-    if (hasSupportedImageTransfer(event?.dataTransfer)) return importTransfer(event.dataTransfer);
-    return originalOnDragDrop?.apply(this, arguments) ?? false;
-  };
-
-  const originalOnDragOver = node.onDragOver;
-  node.onDragOver = function (event) {
-    if (hasSupportedImageTransfer(event?.dataTransfer)) return true;
-    return originalOnDragOver?.apply(this, arguments) ?? false;
-  };
+  bindOfficialImageDrop(main, { app, node, onDrop: importTransfer });
 
   const originalOnRemoved = node.onRemoved;
   node.onRemoved = function () {
