@@ -114,7 +114,7 @@
   },
   "Image Saver (4A Prompt Manager)": {
     "display_name": "图像保存器",
-    "description": "独立的 Image Saver Simple 风格输出节点，保存精确生成参数并自动记录模型、LoRA 和嵌入哈希。",
+    "description": "独立的 Image Saver Simple 风格输出节点，保存精确生成参数并自动记录模型、LoRA 和嵌入哈希。仅写入已连接或已填写的输入，未连接的可选输入不会写入额外内容。",
     "inputs": {
       "images": {"name": "图像", "tooltip": "要保存的一张或多张图像。"},
       "filename": {"name": "文件名", "tooltip": "使用与 Image Saver Simple 相同的文件名变量。"},
@@ -128,6 +128,14 @@
       "model_name": {"name": "模型名称", "tooltip": "检查点或 UNet 文件名；系统会自动解析其 SHA256。"},
       "loaded_loras": {"name": "已加载 LoRA", "tooltip": "来自 Lora Manager 的 loaded_loras 输出。"},
       "prompt_json": {"name": "提示词 JSON", "tooltip": "来自提示词调度器的 prompt_json 输出。"},
+      "positive": {
+        "name": "正面提示词",
+        "tooltip": "未连接提示词调度器时使用的正面提示词；若 prompt_json 已提供提示词则忽略。"
+      },
+      "negative": {
+        "name": "负面提示词",
+        "tooltip": "未连接提示词调度器时使用的负面提示词；若 prompt_json 已提供提示词则忽略。"
+      },
       "parameters_json": {"name": "参数 JSON", "tooltip": "连接后的输入参数和二次采样参数 JSON。"},
       "custom": {"name": "自定义文本", "tooltip": "追加到 A1111 元数据的自定义文本。"},
       "counter": {"name": "计数器", "tooltip": "可用于文件名变量的递增计数。"},

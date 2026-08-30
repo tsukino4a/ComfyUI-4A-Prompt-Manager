@@ -117,32 +117,32 @@ def parse_parameters_json(value: Any, expected_schema: str) -> dict[str, Any] | 
     return normalized or None
 
 
-def _default_parameters(width: int, height: int) -> dict[str, Any]:
+def _filled_dict(value: Any) -> dict[str, Any] | None:
+    return value if isinstance(value, dict) and value else None
+
+
+def _filled_resources(resources: dict[str, Any] | None) -> dict[str, Any]:
     return {
-        "seed": 0,
-        "steps": 20,
-        "cfg": 7.0,
-        "sampler": "",
-        "scheduler": "normal",
-        "denoise": 1.0,
-        "width": int(width),
-        "height": int(height),
+        key: list(items)
+        for key, items in (resources or {}).items()
+        if items
     }
 
 
 def generation_payload(
-    parameters: dict[str, Any],
+    parameters: dict[str, Any] | None,
     double_parameters: dict[str, Any] | None,
-    resources: dict[str, Any],
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "schema": GENERATION_PARAMETERS_SCHEMA,
-        "parameters": dict(parameters),
-        "resources": resources,
-    }
+    resources: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    payload: dict[str, Any] = {"schema": GENERATION_PARAMETERS_SCHEMA}
+    if parameters:
+        payload["parameters"] = dict(parameters)
     if double_parameters:
         payload["double_sample_parameters"] = dict(double_parameters)
-    return payload
+    cleaned_resources = _filled_resources(resources)
+    if cleaned_resources:
+        payload["resources"] = cleaned_resources
+    return payload if len(payload) > 1 else None
 
 
 def _base_model_name(model_name: str) -> str:
@@ -284,16 +284,6 @@ def collect_resources(
     return resources
 
 
-def _model_name_from_prompt(prompt: dict[str, Any] | None) -> str:
-    for node in (prompt or {}).values():
-        inputs = node.get("inputs", {}) if isinstance(node, dict) else {}
-        for key in ("unet_name", "ckpt_name"):
-            value = inputs.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return ""
-
-
 def append_loaded_loras(positive: str, loaded_loras: str) -> str:
     """Append only LoRA tags not already present in the positive prompt."""
 
@@ -331,9 +321,21 @@ def resolve_prompt_texts(
     return str(positive or "").strip(), str(negative or "").strip()
 
 
+def _has_prompt_content(document: dict[str, Any]) -> bool:
+    if str(document.get("positive", "")).strip() or str(document.get("negative", "")).strip():
+        return True
+    tracks = document.get("tracks")
+    if not isinstance(tracks, list):
+        return False
+    return any(
+        isinstance(track, dict) and str(track.get("text", "")).strip()
+        for track in tracks
+    )
+
+
 def build_prompt_document(
     prompt_json: str,
-    parameters: dict[str, Any],
+    parameters: dict[str, Any] | None,
     double_parameters: dict[str, Any] | None,
     positive: str,
     negative: str,
@@ -363,11 +365,20 @@ def build_prompt_document(
     document["source_label"] = "4A"
     document["positive"] = positive.strip()
     document["negative"] = negative.strip()
-    document["parameters"] = dict(parameters)
+    if parameters:
+        document["parameters"] = dict(parameters)
+    elif not _filled_dict(document.get("parameters")):
+        document.pop("parameters", None)
     if double_parameters:
         document["double_sample_parameters"] = dict(double_parameters)
-    else:
+    elif not _filled_dict(document.get("double_sample_parameters")):
         document.pop("double_sample_parameters", None)
+    if (
+        not _has_prompt_content(document)
+        and not _filled_dict(document.get("parameters"))
+        and not _filled_dict(document.get("double_sample_parameters"))
+    ):
+        return None
     return document
 
 
@@ -389,25 +400,32 @@ def _format_number(value: Any) -> str:
 
 
 def build_a1111_parameters(
-    parameters: dict[str, Any],
+    parameters: dict[str, Any] | None,
     positive: str,
     negative: str,
     resources: dict[str, Any],
     custom: str = "",
 ) -> str:
+    settings: list[str] = []
+    params = parameters or {}
+    if "steps" in params:
+        settings.append(f"Steps: {params['steps']}")
     sampler_raw = combined_sampler_name(
-        str(parameters.get("sampler", "")),
-        str(parameters.get("scheduler", "")),
+        str(params.get("sampler", "")),
+        str(params.get("scheduler", "")),
     )
-    settings = [
-        f"Steps: {parameters.get('steps', 0)}",
-        f"Sampler: {sampler_raw}",
-        f"Scheduler: {parameters.get('scheduler', '')}",
-        f"CFG scale: {_format_number(parameters.get('cfg', 0))}",
-        f"Seed: {parameters.get('seed', 0)}",
-        f"Size: {parameters.get('width', 0)}x{parameters.get('height', 0)}",
-        f"Denoising strength: {_format_number(parameters.get('denoise', 1.0))}",
-    ]
+    if sampler_raw:
+        settings.append(f"Sampler: {sampler_raw}")
+    if str(params.get("scheduler", "")).strip():
+        settings.append(f"Scheduler: {params['scheduler']}")
+    if "cfg" in params:
+        settings.append(f"CFG scale: {_format_number(params['cfg'])}")
+    if "seed" in params:
+        settings.append(f"Seed: {params['seed']}")
+    if "width" in params and "height" in params:
+        settings.append(f"Size: {params['width']}x{params['height']}")
+    if "denoise" in params:
+        settings.append(f"Denoising strength: {_format_number(params['denoise'])}")
     custom_text = str(custom or "").strip().strip(",").strip()
     if custom_text:
         settings.append(custom_text)
@@ -429,10 +447,13 @@ def build_a1111_parameters(
         hashes[f"embed:{embedding['name']}"] = embedding["hash"]
     if hashes:
         settings.append(f"Hashes: {_compact_json(hashes)}")
-    settings.append("Version: ComfyUI")
+    if settings:
+        settings.append("Version: ComfyUI")
     prompt = str(positive or "").strip()
-    negative_line = f"\nNegative prompt: {str(negative or '').strip()}"
-    return f"{prompt}{negative_line}\n{', '.join(settings)}".strip()
+    negative_text = str(negative or "").strip()
+    negative_line = f"\nNegative prompt: {negative_text}" if negative_text else ""
+    settings_line = f"\n{', '.join(settings)}" if settings else ""
+    return f"{prompt}{negative_line}{settings_line}".strip()
 
 
 def resource_hash_string(resources: dict[str, Any]) -> str:
@@ -497,7 +518,7 @@ def _apply_variables(
         "%scheduler_name": str(parameters.get("scheduler", "")),
         "%basemodelname": _base_model_name(model_name),
         "%denoise": _format_number(parameters.get("denoise", "")),
-        "%clip_skip": "0",
+        "%clip_skip": "",
         "%custom": str(custom or ""),
     }
     for marker, replacement in replacements.items():
@@ -544,7 +565,7 @@ def _image_size(images: Any) -> tuple[int, int]:
         return first.size
     shape = tuple(getattr(first, "shape", ()))
     if len(shape) >= 2:
-        return int(shape[-2] if len(shape) == 2 else shape[1]), int(shape[0])
+        return int(shape[1]), int(shape[0])
     image = _tensor_to_image(first)
     return image.size
 
@@ -580,17 +601,25 @@ def _save_image(
 ) -> None:
     if extension == "png":
         pnginfo = PngInfo()
+        wrote_text = False
         if a1111_parameters:
             pnginfo.add_text("parameters", a1111_parameters)
+            wrote_text = True
         for key, value in pm4a_metadata.items():
             if value:
                 pnginfo.add_text(key, value)
+                wrote_text = True
         if embed_workflow:
             for key, value in (extra_pnginfo or {}).items():
                 pnginfo.add_text(str(key), _compact_json(value))
+                wrote_text = True
             if prompt is not None:
                 pnginfo.add_text("prompt", _compact_json(prompt))
-        image.save(filepath, pnginfo=pnginfo, optimize=optimize_png)
+                wrote_text = True
+        if wrote_text:
+            image.save(filepath, pnginfo=pnginfo, optimize=optimize_png)
+        else:
+            image.save(filepath, optimize=optimize_png)
         return
 
     save_image = image.convert("RGB") if extension in {"jpg", "jpeg"} else image
@@ -598,6 +627,11 @@ def _save_image(
     if extension == "webp":
         options["lossless"] = bool(lossless_webp)
     save_image.save(filepath, **options)
+
+    full_comment = _exif_comment(a1111_parameters, pm4a_metadata)
+    embed_extra = bool(embed_workflow and (extra_pnginfo or prompt is not None))
+    if not embed_extra and not full_comment:
+        return
 
     try:
         import piexif
@@ -607,15 +641,13 @@ def _save_image(
 
     workflow_tags: dict[int, str] = {}
     prompt_tags: dict[int, str] = {}
-    if embed_workflow:
+    if embed_extra:
         workflow_tags = {
             piexif.ImageIFD.Make - index: f"{key}:{_compact_json(value)}"
             for index, (key, value) in enumerate((extra_pnginfo or {}).items())
         }
         if prompt is not None:
             prompt_tags[piexif.ImageIFD.Model] = f"prompt:{_compact_json(prompt)}"
-
-    full_comment = _exif_comment(a1111_parameters, pm4a_metadata)
 
     def exif_bytes(comment: str) -> bytes:
         data: dict[str, Any] = {}
@@ -707,7 +739,7 @@ class ImageSaver4A:
                     {"default": 100, "min": 1, "max": 100},
                 ),
                 "optimize_png": ("BOOLEAN", {"default": False}),
-                "embed_workflow": ("BOOLEAN", {"default": True}),
+                "embed_workflow": ("BOOLEAN", {"default": False}),
                 "save_workflow_as_json": ("BOOLEAN", {"default": False}),
             },
             "optional": {
@@ -794,6 +826,7 @@ class ImageSaver4A:
     DESCRIPTION = (
         "Independent Image Saver Simple-style output with exact generation parameters and "
         "automatic model, LoRA and embedding hashes. "
+        "Only connected or filled inputs are written; empty optional inputs add no metadata. "
         "Connect Prompt Scheduler prompt_json, or fill/wire positive and negative directly."
     )
 
@@ -806,7 +839,7 @@ class ImageSaver4A:
         lossless_webp: bool,
         quality_jpeg_or_webp: int,
         optimize_png: bool,
-        embed_workflow: bool = True,
+        embed_workflow: bool = False,
         save_workflow_as_json: bool = False,
         model_name: str = "",
         loaded_loras: str = "",
@@ -829,9 +862,6 @@ class ImageSaver4A:
 
         actual_width, actual_height = _image_size(images)
         parameters = parse_parameters_json(parameters_json, INPUT_PARAMETERS_SCHEMA)
-        if parameters is None:
-            parameters = _default_parameters(actual_width, actual_height)
-
         double_parameters = parse_parameters_json(
             parameters_json,
             DOUBLE_SAMPLE_SCHEMA,
@@ -842,7 +872,7 @@ class ImageSaver4A:
 
         positive, negative = resolve_prompt_texts(prompt_json, positive, negative)
         loaded_loras = str(loaded_loras or "").strip()
-        model_name = str(model_name or "").strip() or _model_name_from_prompt(prompt)
+        model_name = str(model_name or "").strip()
         resources = collect_resources(model_name, positive, negative, loaded_loras)
 
         prompt_document = build_prompt_document(
@@ -894,10 +924,11 @@ class ImageSaver4A:
                     }
                     for embedding in resources["embeddings"]
                 ]
-        pm4a_metadata = {
-            "pm4a_prompt_json": _compact_json(prompt_document) if prompt_document else "",
-            "pm4a_generation_parameters": _compact_json(generation_metadata),
-        }
+        pm4a_metadata = {}
+        if prompt_document:
+            pm4a_metadata["pm4a_prompt_json"] = _compact_json(prompt_document)
+        if generation_metadata:
+            pm4a_metadata["pm4a_generation_parameters"] = _compact_json(generation_metadata)
 
         a1111_parameters = build_a1111_parameters(
             parameters,
@@ -907,9 +938,12 @@ class ImageSaver4A:
             custom,
         )
 
+        filename_parameters = dict(parameters or {})
+        filename_parameters.setdefault("width", actual_width)
+        filename_parameters.setdefault("height", actual_height)
         rendered_path = _apply_variables(
             path,
-            parameters,
+            filename_parameters,
             model_name,
             counter,
             time_format,
@@ -919,7 +953,7 @@ class ImageSaver4A:
         output_directory.mkdir(parents=True, exist_ok=True)
         rendered_filename = _apply_variables(
             filename,
-            parameters,
+            filename_parameters,
             model_name,
             counter,
             time_format,
@@ -935,6 +969,8 @@ class ImageSaver4A:
         target_parent.mkdir(parents=True, exist_ok=True)
         prefix = prefix_path.name
         suffix = _base_suffix(target_parent, prefix, extension, len(images))
+        root = _output_directory("")
+        subfolder = os.path.relpath(target_parent, root)
 
         preview_images: list[dict[str, str]] = []
         for index, tensor in enumerate(images):
@@ -957,9 +993,6 @@ class ImageSaver4A:
             )
             if save_workflow_as_json:
                 _save_workflow_json(extra_pnginfo, target_parent / f"{current_prefix}.json")
-
-            root = _output_directory("")
-            subfolder = os.path.relpath(target_parent, root)
             preview_images.append(
                 {
                     "filename": final_filename,

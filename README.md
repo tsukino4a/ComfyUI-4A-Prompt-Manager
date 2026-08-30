@@ -9,7 +9,11 @@ Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
-**Current release: 1.4.1**
+**Current release: 1.4.2**
+
+- Image Saver writes prompt, parameter, and hash metadata only from connected or filled inputs; unconnected optional inputs no longer add default or empty structures
+
+**1.4.1**
 
 - Caches the Wildcard library snapshot so official Queue no longer rebuilds the whole library on every click; plain text skips the snapshot entirely
 - Remembers Browser folder, view, and send mode per workflow instead of sharing one global UI state

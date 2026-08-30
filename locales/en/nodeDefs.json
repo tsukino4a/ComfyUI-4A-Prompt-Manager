@@ -114,7 +114,7 @@
   },
   "Image Saver (4A Prompt Manager)": {
     "display_name": "Image Saver",
-    "description": "Independent Image Saver Simple-style output with exact generation parameters and automatic model, LoRA, and embedding hashes.",
+    "description": "Independent Image Saver Simple-style output with exact generation parameters and automatic model, LoRA, and embedding hashes. Only connected or filled inputs are written.",
     "inputs": {
       "images": {"name": "Images", "tooltip": "Image(s) to save."},
       "filename": {"name": "Filename", "tooltip": "Same filename variables as Image Saver Simple."},
@@ -128,6 +128,14 @@
       "model_name": {"name": "Model Name", "tooltip": "Checkpoint or UNet filename; its SHA256 is resolved automatically."},
       "loaded_loras": {"name": "Loaded LoRAs", "tooltip": "Lora Manager loaded_loras output."},
       "prompt_json": {"name": "Prompt JSON", "tooltip": "Prompt Scheduler prompt_json output."},
+      "positive": {
+        "name": "Positive",
+        "tooltip": "Positive prompt when Prompt Scheduler is not connected; ignored when prompt_json provides prompts."
+      },
+      "negative": {
+        "name": "Negative",
+        "tooltip": "Negative prompt when Prompt Scheduler is not connected; ignored when prompt_json provides prompts."
+      },
       "parameters_json": {"name": "Parameters JSON", "tooltip": "Concatenated Input Parameters and Double Sample Parameters JSON."},
       "custom": {"name": "Custom", "tooltip": "Custom text appended to A1111 metadata."},
       "counter": {"name": "Counter", "tooltip": "Incrementing counter available to filename variables."},
