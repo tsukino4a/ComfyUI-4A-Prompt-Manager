@@ -297,29 +297,42 @@ def expand_prompt(
     )
 
 
-def cleanup_prompt_commas(text: str) -> str:
-    """Drop empty comma slots (e.g. 'a,,b' / 'a, , b'); keep author newlines.
+def _has_separator(text: str) -> bool:
+    return bool(text) and text[-1] in ",.。"
 
-    Leading empty commas are removed; a single trailing comma is left alone.
+
+def cleanup_prompt_commas(text: str) -> str:
+    """Drop empty same-line comma slots; keep author newlines.
+
+    Commas at line breaks are separators, same as ``.`` / ``。``. Only
+    consecutive commas on one line are collapsed. A later line gets a comma
+    only when the current line has no separator yet.
     """
     if not isinstance(text, str) or not text.strip():
         return ""
-    cleaned = re.sub(r",(?:\s*,)+", ",", text)
-    cleaned = re.sub(r"^(?:\s*,\s*)+", "", cleaned)
-    return cleaned
+    cleaned = re.sub(r",(?:[ \t]*,)+", ",", text.replace("\r\n", "\n").replace("\r", "\n"))
+    cleaned = re.sub(r"^(?:[ \t]*,[ \t]*)+", "", cleaned)
+    lines = [line.rstrip() for line in cleaned.split("\n")]
+    last = max((index for index, line in enumerate(lines) if line), default=-1)
+    if last < 0:
+        return ""
+    return "\n".join(
+        f"{line}," if line and index < last and not _has_separator(line) else line
+        for index, line in enumerate(lines)
+    )
 
 
 def join_positive_parts(*parts: str) -> str:
     """Join non-empty prompt parts; keep author newlines, no extra blank lines."""
     cleaned = [
-        part
+        stripped
         for part in (cleanup_prompt_commas(p) for p in parts if isinstance(p, str))
-        if part.strip()
+        if (stripped := part.strip())
     ]
     if not cleaned:
         return ""
     joined = cleaned[0]
     for part in cleaned[1:]:
-        glue = " " if joined.rstrip().endswith(",") else ", "
+        glue = " " if _has_separator(joined.rstrip()) else ", "
         joined += glue + part
     return cleanup_prompt_commas(joined)

@@ -686,10 +686,7 @@ app.registerExtension({
         config.negative = negativeInput.value;
         schedulePersist();
       });
-      void attachAutocompletePlus(negativeInput, {
-        nodeType: node.comfyClass || NODE_CLASS,
-        inputName: "negative",
-      });
+      void attachAutocompletePlus(negativeInput);
       negativeTitle.append(negativeCollapse, negativeTitleText);
       negative.append(negativeTitle, negativeInput);
       main.append(loraRow, settingsRow, controls, trackList, addButton, negative);
@@ -1206,10 +1203,7 @@ app.registerExtension({
               if (libraryButton) libraryButton.disabled = !track.text.trim();
               schedulePersist();
             });
-            void attachAutocompletePlus(prompt, {
-              nodeType: node.comfyClass || NODE_CLASS,
-              inputName: `track_${track.name || track.id}`,
-            });
+            void attachAutocompletePlus(prompt);
             body.appendChild(prompt);
             card.appendChild(body);
             resizeObserver.observe(prompt);
