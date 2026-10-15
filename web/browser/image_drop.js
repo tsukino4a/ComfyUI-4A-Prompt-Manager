@@ -89,39 +89,37 @@ export async function imageFileFromTransfer(dataTransfer, { viewPath = "/view" }
   const localFile = directFile || itemFile;
   if (localFile) return localFile;
 
-  let fetchError = null;
-
   const asset = parseComfyAssetInfo(dataTransfer?.getData?.(COMFY_ASSET_INFO_MIME));
-  if (asset?.filename) {
-    const url = new URL(viewPath, location.href);
-    url.searchParams.set("filename", asset.filename);
-    url.searchParams.set("type", asset.type || "output");
-    if (asset.subfolder) url.searchParams.set("subfolder", asset.subfolder);
+  const uriText = dataTransfer?.getData?.("text/uri-list") || "";
+  const firstUri = uriText.split(/\r?\n/).find((line) => line && !line.startsWith("#"));
+  let uri = null;
+  try {
+    uri = firstUri ? new URL(firstUri, location.href) : null;
+  } catch (_) {
+    /* malformed uri-list entry */
+  }
+  // Asset cards may carry only a basename without its subfolder; the
+  // frontend's content URL is the reliable location.
+  let fetchError = null;
+  if (uri?.origin === location.origin) {
     try {
-      return await fetchImageFile(url, asset.filename);
+      return await fetchImageFile(
+        uri,
+        asset?.filename || uri.searchParams.get("filename") || uri.pathname.split("/").pop(),
+      );
     } catch (error) {
       fetchError = error;
     }
   }
-
-  const uriText = dataTransfer?.getData?.("text/uri-list") || "";
-  const firstUri = uriText.split(/\r?\n/).find((line) => line && !line.startsWith("#"));
-  if (firstUri) {
-    try {
-      const url = new URL(firstUri, location.href);
-      if (url.origin === location.origin) {
-        return await fetchImageFile(
-          url,
-          url.searchParams.get("filename") || url.pathname.split("/").pop(),
-        );
-      }
-    } catch (error) {
-      fetchError ||= error;
-    }
+  if (!asset?.filename) {
+    if (fetchError) throw fetchError;
+    return null;
   }
-
-  if (fetchError) throw fetchError;
-  return null;
+  const url = new URL(viewPath, location.href);
+  url.searchParams.set("filename", asset.filename);
+  url.searchParams.set("type", asset.type || "output");
+  if (asset.subfolder) url.searchParams.set("subfolder", asset.subfolder);
+  return fetchImageFile(url, asset.filename);
 }
 
 export function bindOfficialImageDrop(root, { app, node, onDrop }) {
