@@ -9,7 +9,18 @@
 
 面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard 与 JSON 卡片（LoRA + 稀疏生成设置）、多轨拼装提示词、Wildcard 批量时自动套用设置、从图片元数据回填，并保存带便携参数的生成结果。
 
-**当前版本：1.4.4**
+**当前版本：1.5.0**
+
+- 增加工作流级「接收调度器」：Browser、Prompt Display、Meta Apply 发送提示词时，按「`prompt_json` 连线 > 下拉选择 > 唯一的 Scheduler」决定目标；有多个 Scheduler 时可选其中一个或全部，选择随工作流保存
+- 修复图像保存器未填写模型名时不再自动识别主模型的问题（重新使用 `images` 上游唯一的 Checkpoint / UNet）
+- 兼容新版 ComfyUI 的资产面板：从资产面板拖出的图片（包括子文件夹里的）可以正常读取
+- 卡片负面（含固定负面里的卡片）中嵌套的 `__wildcard__` 现在会递归展开
+- 卡片内容没有变化时，保存不再重写文件和产生归档
+- 详情页的发送、应用模型 / LoRA / 参数、发送 NAI 设置统一使用已保存的卡片内容
+- 官方 Queue 临时应用卡片设置时，即使中途出错也会恢复画布
+- 清理冗余代码和轮询，Browser 跟随工作流切换更可靠
+
+**1.4.4**
 
 - 修复了调度器换行前的逗号被清掉的问题
 
@@ -47,7 +58,7 @@
 
 ### JSON 卡片 LoRA / 生成设置 + Wildcard 自动套用
 
-JSON 卡片可稀疏绑定 LoRA、模型、推理参数（含 seed/宽高）、双采样参数。未填写的字段不会写入 JSON；有双采样字段块即视为二采 ON（不再单独写 enable）。当 Scheduler 栏目用 Wildcard 语法引用这些卡片时，可分别开启「自动嵌入 Wildcard LoRA」「自动应用模型 / 推理参数」：入队前写入对应节点，跑完恢复画布基线（seed 不恢复）。开启自动嵌入后，可用「相同模型/LoRA 连跑」把同一套栈的任务排在一起，减少反复加载。冲突规则：LoRA 可叠（同名跳过），其余按字段先到先得。**Bypass Switch** 按卡片是否含双采样字段开关——把二采子图/参数节点接到开关上即可（目前全图只支持一个）。建卡拖图默认仍只读提示词；可用「从图片加载生成设置」覆盖加载（已有设置会确认）。详情页也可一键把模型 / LoRA / 参数推到画布。
+JSON 卡片可稀疏绑定 LoRA、模型、推理参数（含 seed/宽高）、双采样参数。未填写的字段不会写入 JSON；有双采样字段块即视为二采 ON（不再单独写 enable）。当 Scheduler 栏目用 Wildcard 语法引用这些卡片时，可分别开启「自动嵌入 Wildcard LoRA」「自动应用模型 / 推理参数」：入队前写入对应节点，跑完恢复画布基线（seed 不恢复）。开启自动嵌入后，可用「相同模型/LoRA 连跑」把同一套栈的任务排在一起，减少反复加载。冲突规则：LoRA 可叠（同名跳过），其余按字段先到先得。**Bypass Switch** 按卡片是否含双采样字段开关——把二采子图/参数节点接到开关上即可（目前全图只支持一个）。建卡拖图默认仍只读提示词；可用「从图片加载生成设置」覆盖加载（已有设置会确认）。详情页也可一键把已保存的模型 / LoRA / 参数推到画布。
 
 ![JSON 卡片 LoRA / 生成设置 / Wildcard 自动套用](docs/images/json_card_lora.png)
 
@@ -56,6 +67,8 @@ JSON 卡片可稀疏绑定 LoRA、模型、推理参数（含 seed/宽高）、�
 多轨正面拼装，支持随机 / 顺序 / 洗牌；兼容 Impact 风格 Wildcard 解析（`__key__`、`{a|b}`、权重、多选、文件夹与全局文件名引用）；每个栏位还可从外部连入 STRING。
 
 **嵌套 Wildcard（自动化利器）：** 卡片 `content` / `negative` 与 TXT 正文里都可以再写 `__文件夹__` / `__路径/文件__`。展开时递归解析，并带上内层的 LoRA、负面与稀疏生成设置。顺序批量按**叶子空间**计数/展开：嵌套分支求和、同栏并排 `__a__, __b__` 求积、多栏目取最长；`{a|b}` 等始终随机、不占周期。典型用法是「顶层对比 LoRA/预设，内容里嵌套 `__场景__` / 套件」——点「统计数量」按真实叶子数填任务，而不是只数顶层文件个数。
+
+**接收调度器：** 工作流里有多个 Scheduler 时，Browser、Prompt Display、Meta Apply 上会出现「接收调度器」下拉框，可选某一个或「全部调度器」，各处同步、随工作流保存；节点的 `prompt_json` 连着某个 Scheduler 时优先发给它，只有一个 Scheduler 时无需选择。
 
 完整规则与示例见 [`docs/wildcard-nesting.zh-CN.md`](docs/wildcard-nesting.zh-CN.md)。
 
@@ -80,7 +93,7 @@ NAI 生成节点已迁移到独立的 [ComfyUI-4A-NovelAI](https://github.com/ts
 
 ### Input Parameters & Image Saver
 
-连线简单，输出采样与分辨率参数；按 A1111 风格写入 PNG/JPEG/WebP 元数据，方便保存并复用你的提示词与参数（JPEG/WebP 需要 `piexif`）。
+连线简单，输出采样与分辨率参数；按 A1111 风格写入 PNG/JPEG/WebP 元数据，方便保存并复用你的提示词与参数（JPEG/WebP 需要 `piexif`）。Image Saver 未填写模型名时，会自动使用 `images` 上游唯一的 Checkpoint / UNet 作为主模型；上游有多个模型时留空，不会猜测。
 
 ![Input Parameters / Image Saver](docs/images/input_saver.png)
 

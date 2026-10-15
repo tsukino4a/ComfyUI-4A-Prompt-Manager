@@ -9,7 +9,18 @@ Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
-**Current release: 1.4.4**
+**Current release: 1.5.0**
+
+- Adds a workflow-level **receiving Scheduler**: Browser, Prompt Display, and Meta Apply pick the target by `prompt_json` wire > dropdown choice > the only Scheduler; with several Schedulers you can choose one or all, and the choice is saved with the workflow
+- Fixes Image Saver no longer detecting the base model when no model name is given (it again uses the only Checkpoint / UNet upstream of `images`)
+- Supports the assets panel in newer ComfyUI versions: images dragged from it, including ones in output subfolders, load correctly
+- Nested `__wildcard__` references inside card negatives (including cards in the fixed negative) are now expanded recursively
+- Saving an unchanged card no longer rewrites the file or creates an archive copy
+- Detail-view send, apply models / LoRA / parameters, and send NAI settings all use the saved card content
+- When official Queue temporarily applies card settings, the canvas is restored even if applying fails midway
+- Removes redundant code and polling; Browser follows workflow switches more reliably
+
+**1.4.4**
 
 - Fixes commas before line breaks in the Scheduler being stripped
 
@@ -47,7 +58,7 @@ A full, easy-to-use library UI. Prompts live as a normal folder tree (JSON cards
 
 ### JSON card LoRAs / generation settings + wildcard auto-apply
 
-JSON cards can sparsely store LoRAs, models, sampler settings (including seed/size), and double-sample settings. Empty fields are omitted from JSON; presence of a double-sample block means second pass ON (no separate enable flag). When Scheduler tracks resolve those cards via wildcard syntax, enable **Auto-embed Wildcard LoRAs** and/or **Auto-apply models / inference parameters** to write matching nodes before queueing, then restore the canvas baseline (seed is not restored). With auto-embed on, **Group same models / LoRAs** queues jobs that share the same stack together to reduce reloads. Conflict rules: LoRAs stack (skip same name); everything else is first-wins per field. **Bypass Switch** follows whether the card has double-sample fields—wire the second-pass subgraph/parameters into it (one switch per workflow for now). Dropping an image when creating a card still reads prompts only by default; use **Load generation settings from image** (with overwrite confirm) for models/params/size/LoRA. Detail view can also push models / LoRA / parameters into the canvas in one click.
+JSON cards can sparsely store LoRAs, models, sampler settings (including seed/size), and double-sample settings. Empty fields are omitted from JSON; presence of a double-sample block means second pass ON (no separate enable flag). When Scheduler tracks resolve those cards via wildcard syntax, enable **Auto-embed Wildcard LoRAs** and/or **Auto-apply models / inference parameters** to write matching nodes before queueing, then restore the canvas baseline (seed is not restored). With auto-embed on, **Group same models / LoRAs** queues jobs that share the same stack together to reduce reloads. Conflict rules: LoRAs stack (skip same name); everything else is first-wins per field. **Bypass Switch** follows whether the card has double-sample fields—wire the second-pass subgraph/parameters into it (one switch per workflow for now). Dropping an image when creating a card still reads prompts only by default; use **Load generation settings from image** (with overwrite confirm) for models/params/size/LoRA. Detail view can also push the saved models / LoRA / parameters into the canvas in one click.
 
 ![JSON card LoRAs / generation settings / wildcard auto-apply](docs/images/json_card_lora.png)
 
@@ -56,6 +67,8 @@ JSON cards can sparsely store LoRAs, models, sampler settings (including seed/si
 Stack positives across tracks with random / sequence / shuffle, Impact-compatible wildcard parsing (`__key__`, `{a|b}`, weights, multi-select, folder and global name lookup), and optional STRING inputs wired into each track from the graph.
 
 **Nested wildcards (great for automation):** JSON `content` / `negative` and TXT bodies may contain further `__folder__` / `__path/file__`. Expansion resolves recursively and carries nested LoRAs, negatives, and sparse generation settings. Sequential batching uses a **leaf space**: nested branches **sum**, side-by-side `__a__, __b__` in one track **multiply**, multiple tracks take the **longest**; `{a|b}` and friends stay random and do not lengthen the cycle. A common pattern is “outer cards = LoRAs/presets to compare; inner `__scenes__` / suites = shared prompts”—**Count tasks** fills the job count from that leaf space, not just the top-level folder size.
+
+**Receiving Scheduler:** when a workflow has several Schedulers, Browser, Prompt Display, and Meta Apply show a **Receiving Scheduler** dropdown where you pick one or **All Schedulers**; the choice stays in sync everywhere and is saved with the workflow. A node whose `prompt_json` is wired to a Scheduler always sends to that one, and with a single Scheduler no choice is needed.
 
 Full rules and examples: [`docs/wildcard-nesting.md`](docs/wildcard-nesting.md) ([中文](docs/wildcard-nesting.zh-CN.md)).
 
@@ -80,7 +93,7 @@ Read prompts and params from common image formats. Drop images from the Browser 
 
 ### Input Parameters & Image Saver
 
-Simple wiring for sampler / resolution outputs; save PNG/JPEG/WebP with A1111-style metadata so your prompts and params stay portable and reusable (JPEG/WebP need `piexif`).
+Simple wiring for sampler / resolution outputs; save PNG/JPEG/WebP with A1111-style metadata so your prompts and params stay portable and reusable (JPEG/WebP need `piexif`). When no model name is given, Image Saver uses the only Checkpoint / UNet upstream of `images` as the base model; with several upstream models it leaves the field empty instead of guessing.
 
 ![Input Parameters and Image Saver](docs/images/input_saver.png)
 
