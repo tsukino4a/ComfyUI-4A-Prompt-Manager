@@ -126,6 +126,7 @@
             <button type="button" id="btn-browser-mode-comfy" class="view-button active" title="Comfy 模式" data-i18n-title="Comfy 模式" aria-label="Comfy 模式" data-i18n-aria-label="Comfy 模式" aria-pressed="true"><span data-i18n="Comfy">Comfy</span></button>
             <button type="button" id="btn-browser-mode-nai" class="view-button" title="NAI 模式" data-i18n-title="NAI 模式" aria-label="NAI 模式" data-i18n-aria-label="NAI 模式" aria-pressed="false"><span data-i18n="NAI">NAI</span></button>
           </div>
+          <select id="send-target" class="send-target-select" hidden title="接收调度器" aria-label="接收调度器" data-i18n-title="接收调度器" data-i18n-aria-label="接收调度器"></select>
           <button type="button" id="btn-send-mode" class="send-mode-button" data-mode="append" title="发送模式：追加到已有内容；点击切换为全部替换" aria-label="发送模式：追加到已有内容；点击切换为全部替换" data-i18n-title="发送模式：追加到已有内容；点击切换为全部替换" data-i18n-aria-label="发送模式：追加到已有内容；点击切换为全部替换" aria-pressed="false">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <g class="send-mode-append-icon"><path d="M4 7h9M4 12h7M4 17h9" /><path d="M18 13v8M14 17h8" /></g>
@@ -261,6 +262,7 @@
                 </svg>
                 <span id="detail-send-mode-label" data-i18n="追加">追加</span>
               </button>
+              <select id="detail-send-target" class="send-target-select detail-send-target-select" hidden title="接收调度器" aria-label="接收调度器" data-i18n-title="接收调度器" data-i18n-aria-label="接收调度器"></select>
               <div class="detail-send-actions" aria-label="发送正面提示词" data-i18n-aria-label="发送正面提示词">
                 <button type="button" class="inspector-send-button quality-slot" data-slot="quality" title="发送到质量" aria-label="发送到质量" data-i18n-title="发送到质量" data-i18n-aria-label="发送到质量"><span data-i18n="质量">质量</span></button>
                 <button type="button" class="inspector-send-button character-slot" data-slot="character" title="发送到角色" aria-label="发送到角色" data-i18n-title="发送到角色" data-i18n-aria-label="发送到角色"><span data-i18n="角色">角色</span></button>

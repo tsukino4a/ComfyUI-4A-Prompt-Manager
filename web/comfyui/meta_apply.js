@@ -19,27 +19,11 @@ import {
   readImagePromptSnapshot,
 } from "./meta_apply_core.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
+import { createSendTargetSelect, notify } from "./send_target.js";
 
 const NODE_CLASS = "Meta Apply (4A Prompt Manager)";
-const PROMPT_DISPLAY_CLASS = "Prompt Display (4A Prompt Manager)";
 const IMAGE_REF_PROPERTY = "pm4a_imported_image_ref";
 const MIN_WIDGET_HEIGHT = 160;
-
-function settingsApplyHostNode() {
-  const graph = app.graph;
-  const nodes = graph?._nodes || graph?.nodes || [];
-  const preferred = nodes.find((node) => (
-    node
-    && (node.comfyClass === NODE_CLASS || node.type === NODE_CLASS)
-  ));
-  if (preferred) return preferred;
-  const display = nodes.find((node) => (
-    node
-    && (node.comfyClass === PROMPT_DISPLAY_CLASS || node.type === PROMPT_DISPLAY_CLASS)
-  ));
-  if (display) return display;
-  return { graph, properties: {} };
-}
 
 const APPLY_FLAG_WIDGETS = {
   applyModel: ["自动应用模型", "apply_model"],
@@ -115,6 +99,17 @@ function ensureMetaApplyStyles() {
       font: inherit;
     }
     .pm4a-meta-apply-pick:hover { color: #fff; background: #464b51; }
+    .pm4a-meta-apply-target {
+      flex: 0 0 auto;
+      width: 100%;
+      height: 26px;
+      padding: 2px 5px;
+      border: 1px solid #4b4f55;
+      border-radius: 4px;
+      color: #ddd;
+      background: #1b1d20;
+      font: inherit;
+    }
     .pm4a-meta-apply-status {
       flex: 0 0 auto;
       min-height: 28px;
@@ -194,7 +189,8 @@ function setupMetaApplyNode(node) {
   const status = document.createElement("div");
   status.className = "pm4a-meta-apply-status";
   status.setAttribute("aria-live", "polite");
-  main.append(pick, fileInput, status, preview);
+  const sendTarget = createSendTargetSelect("pm4a-meta-apply-target");
+  main.append(sendTarget.element, pick, fileInput, status, preview);
 
   let applyGeneration = 0;
   const setStatus = (message) => {
@@ -280,6 +276,12 @@ function setupMetaApplyNode(node) {
 
   bindOfficialImageDrop(main, { app, node, onDrop: importTransfer });
 
+  const originalOnRemoved = node.onRemoved;
+  node.onRemoved = function () {
+    sendTarget.dispose();
+    return originalOnRemoved?.apply(this, arguments);
+  };
+
   let uiWidget = null;
   uiWidget = node.addDOMWidget("pm4a_meta_apply_ui", "pm4a_meta_apply", main, withSyncedDomWidth({
     serialize: false,
@@ -309,7 +311,6 @@ app.registerExtension({
       const apply = String(detail.apply || "");
       if (!["models", "lora", "parameters"].includes(apply)) return;
       configureComfyI18n(app);
-      const host = settingsApplyHostNode();
       const payload = {
         models: Array.isArray(detail.models) ? detail.models : [],
         loras: detail.loras && typeof detail.loras === "object"
@@ -325,15 +326,16 @@ app.registerExtension({
           ? detail.double_sample_parameters
           : {},
       };
-      void applyAllFromPayload(host, payload, {
+      void applyAllFromPayload({ graph: app.graph, properties: {} }, payload, {
         applyPrompt: false,
         applyModel: apply === "models",
         applyLora: apply === "lora",
         applyParameters: apply === "parameters",
       }).then((result) => {
-        if (result?.message) console.info("[4A-PM]", result.message);
+        if (result.errors.length) notify(result.message);
+        else console.info("[4A-PM]", result.message);
       }).catch((error) => {
-        console.warn("[4A-PM] settings apply failed:", error?.message || error);
+        notify(String(error?.message || error));
       });
     });
   },

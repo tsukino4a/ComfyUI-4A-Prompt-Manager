@@ -5,14 +5,13 @@ import {
   sanitizeRawMetadata,
 } from "/pm4a/static/image_prompt_metadata.js";
 import { getLocale, pm4aFetch, t } from "./i18n.js";
+import { resolveTargetSchedulers } from "./send_target.js";
 
-export const SCHEDULER_NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
 export const INPUT_PARAMETERS_NODE_CLASS = "Input Parameters (4A Prompt Manager)";
 export const DOUBLE_SAMPLE_PARAMETERS_NODE_CLASS = "Double Sample Parameters (4A Prompt Manager)";
 export const BYPASS_SWITCH_NODE_CLASS = "Bypass Switch (4A Prompt Manager)";
 export const LORA_LOADER_NODE_CLASS = "Lora Loader (LoraManager)";
 
-export const TARGET_NODE_PROPERTY = "pm4a_target_scheduler_id";
 export const TARGET_PARAMETERS_PROPERTY = "pm4a_target_parameters_id";
 export const TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY = "pm4a_target_double_sample_parameters_id";
 export const TARGET_LORA_PROPERTY = "pm4a_target_lora_loader_id";
@@ -91,14 +90,6 @@ export async function readImagePromptSnapshot(file) {
     document: snapshotDocument,
     promptJson: JSON.stringify(snapshotDocument),
   };
-}
-
-export function isScheduler(node) {
-  return node && (node.comfyClass === SCHEDULER_NODE_CLASS || node.type === SCHEDULER_NODE_CLASS);
-}
-
-export function schedulerNodes(graph) {
-  return (graph?._nodes || graph?.nodes || []).filter(isScheduler);
 }
 
 export function isInputParameters(node) {
@@ -279,36 +270,11 @@ export function replaceModelWidget(target, value) {
   return true;
 }
 
-export function graphNodeById(graph, id) {
+function graphNodeById(graph, id) {
   if (!graph || id === undefined || id === null || id === "") return null;
   const direct = graph.getNodeById?.(id) || graph.getNodeById?.(Number(id));
   if (direct) return direct;
   return (graph._nodes || graph.nodes || []).find((candidate) => String(candidate?.id) === String(id)) || null;
-}
-
-export function connectedScheduler(hostNode) {
-  const graph = hostNode.graph || app.graph;
-  const input = hostNode.inputs?.find((candidate) => candidate.name === "prompt_json");
-  const link = input?.link !== null && input?.link !== undefined
-    ? (graph?.links?.[input.link] || graph?._links?.[input.link])
-    : null;
-  const connected = link ? graphNodeById(graph, link.origin_id) : null;
-  return isScheduler(connected) ? connected : null;
-}
-
-export function findSourceScheduler(hostNode, payload) {
-  const graph = hostNode.graph || app.graph;
-  const connected = connectedScheduler(hostNode);
-  if (connected) return connected;
-
-  const chosen = graphNodeById(graph, hostNode.properties?.[TARGET_NODE_PROPERTY]);
-  if (isScheduler(chosen)) return chosen;
-
-  const declared = graphNodeById(graph, payload?.scheduler_node_id);
-  if (isScheduler(declared)) return declared;
-
-  const schedulers = schedulerNodes(graph);
-  return schedulers.length === 1 ? schedulers[0] : null;
 }
 
 export function findInputParametersTarget(hostNode) {
@@ -602,15 +568,14 @@ export function conversionRepairNotice(results) {
   return count ? t("（已补全 {count} 个闭合符号）", { count }) : "";
 }
 
-export async function applyPositiveFromPayload(hostNode, payload) {
-  const scheduler = findSourceScheduler(hostNode, payload);
-  if (!scheduler) {
-    throw new Error(
-      schedulerNodes(hostNode.graph || app.graph).length
-        ? t("请先选择 Scheduler")
-        : t("工作流中没有 Scheduler"),
-    );
-  }
+function requireTargetSchedulers(sourceNode) {
+  const { schedulers, error } = resolveTargetSchedulers(sourceNode);
+  if (error) throw new Error(error);
+  return schedulers;
+}
+
+export async function applyPositiveFromPayload(sourceNode, payload) {
+  const schedulers = requireTargetSchedulers(sourceNode);
   const sourceTracks = Array.isArray(payload.tracks) ? payload.tracks : [];
   const results = await convertNovelAITexts(
     payload,
@@ -621,42 +586,87 @@ export async function applyPositiveFromPayload(hostNode, payload) {
     text: results[index]?.text ?? track.text,
   }));
   const convertedPositive = results[sourceTracks.length]?.text ?? payload.positive;
-  const result = scheduler.__pm4aSchedulerReceivePositive?.(
-    convertedTracks,
-    convertedPositive,
-  );
-  if (!result) throw new Error(t("Scheduler 尚未准备好，请刷新页面"));
-  const missing = result.unmatched?.length
+  let accepted = false;
+  const unmatched = new Set();
+  for (const scheduler of schedulers) {
+    const result = scheduler.__pm4aSchedulerReceivePositive?.(
+      convertedTracks,
+      convertedPositive,
+    );
+    if (!result) throw new Error(t("Scheduler 尚未准备好，请刷新页面"));
+    accepted ||= result.accepted;
+    for (const name of result.unmatched || []) unmatched.add(name);
+  }
+  const missing = unmatched.size
     ? t("；未找到 {names}", {
       names: localeJoin(
-        result.unmatched.map((name) => displayTrackName({ name })),
+        [...unmatched].map((name) => displayTrackName({ name })),
         { zh: "、", en: ", " },
       ),
     })
     : "";
   const notice = conversionRepairNotice(results);
-  if (!result.accepted) throw new Error(t("没有可回填的正面提示词"));
+  if (!accepted) throw new Error(t("没有可回填的正面提示词"));
   return t("已使用全部正面提示词{notice}{missing}", { notice, missing });
 }
 
-export async function applyNegativeFromPayload(hostNode, payload) {
-  const negative = typeof payload?.negative === "string" ? payload.negative.trim() : "";
-  if (!negative) return null;
-  const scheduler = findSourceScheduler(hostNode, payload);
-  if (!scheduler) {
-    throw new Error(
-      schedulerNodes(hostNode.graph || app.graph).length
-        ? t("请先选择 Scheduler")
-        : t("工作流中没有 Scheduler"),
-    );
-  }
-  const entry = { id: "negative", name: "负面", text: negative };
+/** Replace one track (or the negative) in the receiving scheduler(s). */
+export async function sendTrackFromPayload(sourceNode, payload, entry) {
+  const schedulers = requireTargetSchedulers(sourceNode);
   const results = await convertNovelAITexts(payload, [entry.text]);
   const converted = { ...entry, text: results[0]?.text ?? entry.text };
-  const accepted = scheduler.__pm4aSchedulerReceiveTrack?.(converted, "replace");
-  const notice = conversionRepairNotice(results);
-  if (!accepted) throw new Error(t("未找到“{name}”栏目", { name: displayTrackName(entry) }));
-  return t("已回填“{name}”{notice}", { name: displayTrackName(entry), notice });
+  const accepted = schedulers.filter(
+    (scheduler) => scheduler.__pm4aSchedulerReceiveTrack?.(converted, "replace"),
+  ).length;
+  const name = displayTrackName(entry);
+  if (!accepted) throw new Error(t("未找到“{name}”栏目", { name }));
+  return t("已回填“{name}”{notice}", { name, notice: conversionRepairNotice(results) });
+}
+
+export async function applyNegativeFromPayload(sourceNode, payload) {
+  const negative = typeof payload?.negative === "string" ? payload.negative.trim() : "";
+  if (!negative) return null;
+  return sendTrackFromPayload(sourceNode, payload, { id: "negative", name: "负面", text: negative });
+}
+
+/**
+ * Hosts whose remembered parameter / LoRA targets route settings: the
+ * receiving schedulers, or a neutral host when no scheduler resolves.
+ */
+export function settingsHostNodes(sourceNode = null) {
+  const { schedulers } = resolveTargetSchedulers(sourceNode);
+  if (!schedulers.length) return [{ graph: sourceNode?.graph || app.graph, properties: {} }];
+  const seen = new Set();
+  return schedulers.filter((host) => {
+    const key = [
+      findInputParametersTarget(host),
+      findDoubleSampleParametersTarget(host),
+      findLoraLoaderTarget(host),
+    ].map((target) => target?.id ?? "").join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function applyRoutedParameterSettings(sourceNode, payload) {
+  const applied = new Set();
+  const errors = new Set();
+  for (const host of settingsHostNodes(sourceNode)) {
+    const result = applyParameterSettingsFromPayload(host, payload);
+    for (const item of result.applied) applied.add(item);
+    for (const item of result.errors) errors.add(item);
+  }
+  return { applied: [...applied], errors: [...errors] };
+}
+
+export async function applyRoutedLora(sourceNode, payload) {
+  const messages = [];
+  for (const host of settingsHostNodes(sourceNode)) {
+    const message = await applyLoraFromPayload(host, payload);
+    if (message) messages.push(message);
+  }
+  return messages.length ? localeJoin(messages, { zh: "；", en: "; " }) : null;
 }
 
 export async function applyModelsFromPayload(hostNode, payload) {
@@ -766,7 +776,8 @@ export async function applyLoraFromPayload(hostNode, payload) {
 }
 
 /**
- * Apply Meta Loader targets available in the payload.
+ * Apply Meta Loader targets available in the payload. Prompts, LoRA and
+ * parameters follow the receiving scheduler; models use `sourceNode`.
  * @param {{
  *   applyPrompt?: boolean,
  *   applyModel?: boolean,
@@ -775,7 +786,7 @@ export async function applyLoraFromPayload(hostNode, payload) {
  *   applyParameters?: boolean,
  * }} [options]
  */
-export async function applyAllFromPayload(hostNode, payload, options = {}) {
+export async function applyAllFromPayload(sourceNode, payload, options = {}) {
   const applyPrompt = options.applyPrompt !== false;
   // Prefer split flags; fall back to legacy applyModelLora when split flags omitted.
   const applyModelFlag = options.applyModel !== undefined
@@ -790,13 +801,13 @@ export async function applyAllFromPayload(hostNode, payload, options = {}) {
 
   if (applyPrompt) {
     try {
-      applied.push(await applyPositiveFromPayload(hostNode, payload));
+      applied.push(await applyPositiveFromPayload(sourceNode, payload));
     } catch (error) {
       errors.push(t("{key}：{error}", { key: t("正面提示词"), error: error.message || error }));
     }
 
     try {
-      const message = await applyNegativeFromPayload(hostNode, payload);
+      const message = await applyNegativeFromPayload(sourceNode, payload);
       if (message) applied.push(message);
     } catch (error) {
       errors.push(t("{key}：{error}", { key: t("负面"), error: error.message || error }));
@@ -804,7 +815,7 @@ export async function applyAllFromPayload(hostNode, payload, options = {}) {
   }
 
   if (applyModelFlag) {
-    const modelResult = await applyModelsFromPayload(hostNode, payload);
+    const modelResult = await applyModelsFromPayload(sourceNode, payload);
     const modelCount = modelResult.applied.length;
     if (modelCount) {
       applied.push(modelCount === 1 ? t("模型 1 个") : t("模型 {count} 个", { count: modelCount }));
@@ -814,7 +825,7 @@ export async function applyAllFromPayload(hostNode, payload, options = {}) {
 
   if (applyLoraFlag) {
     try {
-      const message = await applyLoraFromPayload(hostNode, payload);
+      const message = await applyRoutedLora(sourceNode, payload);
       if (message) applied.push("LoRA");
     } catch (error) {
       if (typeof payload?.loras?.text === "string" && payload.loras.text.trim()) {
@@ -824,7 +835,7 @@ export async function applyAllFromPayload(hostNode, payload, options = {}) {
   }
 
   if (applyParameters) {
-    const paramResult = applyParameterSettingsFromPayload(hostNode, payload);
+    const paramResult = applyRoutedParameterSettings(sourceNode, payload);
     applied.push(...paramResult.applied);
     errors.push(...paramResult.errors);
   }

@@ -575,7 +575,6 @@ async def handle_append_slot(request: web.Request) -> web.Response:
     text = data.get("text")
     key = data.get("key")
     mode = data.get("mode", "append")
-    node_ids = data.get("node_ids")  # optional
 
     if slot not in SLOT_WIDGETS:
         return _json_error(f"slot must be one of {list(SLOT_WIDGETS)}")
@@ -611,8 +610,6 @@ async def handle_append_slot(request: web.Request) -> web.Response:
         "mode": mode,
         "node_class": NODE_CLASS,
     }
-    if isinstance(node_ids, list) and node_ids:
-        payload["node_ids"] = node_ids
 
     try:
         from server import PromptServer  # ComfyUI runtime

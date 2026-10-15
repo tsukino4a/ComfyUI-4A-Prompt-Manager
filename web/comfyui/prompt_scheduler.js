@@ -22,8 +22,18 @@ import {
   settingsPlanNonempty,
   writeLoraLoaderText,
 } from "./meta_apply_core.js";
+import {
+  SCHEDULER_NODE_CLASS as NODE_CLASS,
+  allSchedulerNodes,
+  isReceivingScheduler,
+  notify,
+  onSendTargetChange,
+  resolveTargetSchedulers,
+  scheduleSendTargetRefresh,
+  schedulerKey,
+  setSendTarget,
+} from "./send_target.js";
 
-const NODE_CLASS = "Prompt Scheduler (4A Prompt Manager)";
 const TRACK_INPUT_PREFIX = "pm4a_track_";
 const INTERNAL_INPUT_NAMES = new Set(["config_json", "execution_index", "run_id"]);
 const INTERNAL_INPUT_TYPE = "PM4A_INTERNAL";
@@ -45,6 +55,7 @@ const COLLAPSE_ICONS = Object.freeze({
   expanded: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>',
   collapsed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 5 5-5 5"/></svg>',
 });
+const RECEIVE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>';
 const BYPASS_ICONS = Object.freeze({
   enabled: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h11M5 17h8"/></svg>',
   bypassed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h11M5 17h8M4 4l16 16"/></svg>',
@@ -208,37 +219,6 @@ function resolveSchedulerSeed(node) {
   return seedWidgetValue(node);
 }
 
-function findSchedulerNodes() {
-  const results = [];
-  const visit = (graph) => {
-    for (const node of graph?._nodes || graph?.nodes || []) {
-      if (!node) continue;
-      if (node.comfyClass === NODE_CLASS || node.type === NODE_CLASS) results.push(node);
-      if (node.subgraph) visit(node.subgraph);
-    }
-  };
-  visit(app.graph);
-  return results;
-}
-
-function pickTargetNodes(payload) {
-  const explicit = payload?.node_ids;
-  const all = findSchedulerNodes();
-  if (Array.isArray(explicit) && explicit.length) {
-    const wanted = new Set(explicit.map((entry) => String(entry?.node_id ?? entry)));
-    return all.filter((node) => wanted.has(String(node.id)));
-  }
-  if (!all.length) return [];
-  const selectedSource = app.canvas?.selected_nodes;
-  const selected = (selectedSource instanceof Map
-    ? [...selectedSource.values()]
-    : Object.values(selectedSource || {})
-  ).filter((node) => node && (node.comfyClass === NODE_CLASS || node.type === NODE_CLASS));
-  if (selected.length) return selected;
-  if (all.length === 1) return all;
-  return [all.reduce((left, right) => Number(left.id) >= Number(right.id) ? left : right)];
-}
-
 function injectStyles() {
   let style = document.getElementById("pm4a-scheduler-styles");
   if (!style) {
@@ -265,6 +245,16 @@ function injectStyles() {
     .pm4a-scheduler-lora-toggle.disabled { opacity:.45; cursor:not-allowed; text-decoration:line-through; }
     .pm4a-scheduler-lora-toggle.disabled input { cursor:not-allowed; }
     .pm4a-scheduler-lora-target { flex:1; min-width:140px; max-width:260px; height:28px; }
+    .pm4a-scheduler-receive { margin-left:auto; height:26px; padding:2px 8px !important; display:inline-flex; align-items:center; gap:4px; color:#9aa1a8 !important; background:transparent !important; border-color:#4b4f55 !important; white-space:nowrap; }
+    .pm4a-scheduler-receive svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; pointer-events:none; }
+    .pm4a-scheduler-receive[hidden] { display:none; }
+    .pm4a-scheduler-receive.active { color:#fff !important; background:#2f6fb0 !important; border-color:#4299e0 !important; }
+    .pm4a-scheduler-receive.active svg circle:last-child { fill:currentColor; }
+    .pm4a-scheduler.pm4a-scheduler-flash { animation:pm4a-scheduler-flash 1.2s ease-out; }
+    @keyframes pm4a-scheduler-flash {
+      0%, 55% { box-shadow:inset 0 0 0 2px #4299e0, inset 0 0 14px rgba(66,153,224,.45); }
+      100% { box-shadow:inset 0 0 0 2px rgba(66,153,224,0), inset 0 0 14px rgba(66,153,224,0); }
+    }
     .pm4a-track-list { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; gap:7px; padding-right:3px; scrollbar-width:thin; }
     .pm4a-track { flex:0 0 auto; border:1px solid #486b48; border-radius:6px; background:#353; overflow:hidden; }
     .pm4a-track-header { display:flex; align-items:center; gap:2px; min-height:28px; padding:2px 4px; background:#232; }
@@ -368,15 +358,20 @@ app.registerExtension({
       const value = payload.value;
       const mode = payload.mode === "replace" ? "replace" : "append";
       if (!WEB_SLOTS.has(slot) || typeof value !== "string") return;
-      const targets = pickTargetNodes(payload);
-      if (!targets.length) {
-        console.warn("[4A-PM] no Prompt Scheduler node found on canvas");
+      configureComfyI18n(app);
+      const { schedulers, error } = resolveTargetSchedulers();
+      if (error) {
+        notify(error);
         return;
       }
-      for (const node of targets) {
+      for (const node of schedulers) {
         node.__pm4aSchedulerReceiveSlot?.(slot, value, mode);
       }
     });
+  },
+
+  async afterConfigureGraph() {
+    scheduleSendTargetRefresh();
   },
 
   async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -548,7 +543,8 @@ app.registerExtension({
         if (remembered) loraTarget.value = previous;
         else if (targets.length === 1) loraTarget.value = String(targets[0].id);
         else loraTarget.value = "";
-        loraTarget.hidden = !config.lora_append || targets.length < 2;
+        // Also routes LoRA sent from Meta nodes / the browser, so not tied to lora_append.
+        loraTarget.hidden = targets.length < 2;
         syncLoraGroupToggle();
       };
       loraCheckbox.addEventListener("change", () => {
@@ -569,7 +565,20 @@ app.registerExtension({
         node.properties[TARGET_LORA_PROPERTY] = loraTarget.value;
       });
       refreshLoraTargets();
-      loraRow.append(loraToggle, loraGroupToggle, loraTarget);
+      const receiveButton = document.createElement("button");
+      receiveButton.type = "button";
+      receiveButton.className = "pm4a-scheduler-receive";
+      const renderReceive = () => {
+        const active = isReceivingScheduler(node);
+        receiveButton.hidden = allSchedulerNodes().length < 2;
+        receiveButton.classList.toggle("active", active);
+        receiveButton.innerHTML = `${RECEIVE_ICON}<span>${active ? t("接收中") : t("设为接收")}</span>`;
+        receiveButton.title = active ? t("当前接收调度器") : t("设为接收调度器");
+        receiveButton.setAttribute("aria-pressed", String(active));
+      };
+      receiveButton.onclick = () => setSendTarget(schedulerKey(node));
+      renderReceive();
+      loraRow.append(loraToggle, loraGroupToggle, loraTarget, receiveButton);
 
       const settingsRow = document.createElement("div");
       settingsRow.className = "pm4a-scheduler-lora-row";
@@ -640,10 +649,9 @@ app.registerExtension({
           TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY,
           t("选择双采样参数节点"),
         );
-        parametersTarget.hidden = !config.settings_apply_parameters
-          || inputParameterNodes(node.graph || app.graph).length < 2;
-        doubleSampleTarget.hidden = !config.settings_apply_parameters
-          || doubleSampleParameterNodes(node.graph || app.graph).length < 2;
+        // Also route parameters sent from Meta nodes / the browser, so not tied to the toggle.
+        parametersTarget.hidden = inputParameterNodes(node.graph || app.graph).length < 2;
+        doubleSampleTarget.hidden = doubleSampleParameterNodes(node.graph || app.graph).length < 2;
         modelsToggle.checkbox.checked = Boolean(config.settings_apply_models);
         parametersToggle.checkbox.checked = Boolean(config.settings_apply_parameters);
         syncLoraGroupToggle();
@@ -690,6 +698,33 @@ app.registerExtension({
       negativeTitle.append(negativeCollapse, negativeTitleText);
       negative.append(negativeTitle, negativeInput);
       main.append(loraRow, settingsRow, controls, trackList, addButton, negative);
+
+      main.addEventListener("pointerenter", () => {
+        refreshLoraTargets();
+        refreshSettingsTargets();
+      });
+      const disposeSendTarget = onSendTargetChange(() => {
+        renderReceive();
+        refreshLoraTargets();
+        refreshSettingsTargets();
+      });
+      main.addEventListener("animationend", () => main.classList.remove("pm4a-scheduler-flash"));
+      node.__pm4aSchedulerFlash = () => {
+        main.classList.remove("pm4a-scheduler-flash");
+        void main.offsetWidth;
+        main.classList.add("pm4a-scheduler-flash");
+      };
+      const originalOnAdded = node.onAdded;
+      node.onAdded = function () {
+        scheduleSendTargetRefresh();
+        return originalOnAdded?.apply(this, arguments);
+      };
+      const originalOnRemoved = node.onRemoved;
+      node.onRemoved = function () {
+        disposeSendTarget();
+        scheduleSendTargetRefresh();
+        return originalOnRemoved?.apply(this, arguments);
+      };
 
       let disconnectingInternalInputs = false;
       const disconnectInternalInputs = () => {
@@ -1254,6 +1289,7 @@ app.registerExtension({
 
         persist();
         renderTracks();
+        if (applied) node.__pm4aSchedulerFlash();
         return { accepted: applied > 0, applied, unmatched };
       };
 
@@ -1283,6 +1319,7 @@ app.registerExtension({
           if (prompt) prompt.value = track.text;
         }
         persist();
+        node.__pm4aSchedulerFlash();
         return true;
       };
 
@@ -1439,7 +1476,7 @@ app.registerExtension({
           }
         };
         app.queuePrompt = async function pm4aSchedulerQueuePrompt(...args) {
-          const active = findSchedulerNodes().filter((candidate) => {
+          const active = allSchedulerNodes().filter((candidate) => {
             const widget = candidate.widgets?.find((entry) => entry?.name === "config_json");
             const conf = normalizeConfig(widget?.value);
             const needsHook = conf.lora_append || settingsApplyEnabled(conf);

@@ -802,6 +802,34 @@ body.sidebar-hidden .sidebar-rail {
   display: none;
 }
 
+.send-target-select {
+  height: 30px;
+  max-width: 180px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: #1b1e22;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.send-target-select:hover,
+.send-target-select:focus-visible {
+  border-color: #4b535e;
+  color: var(--text);
+}
+
+.send-target-select[hidden] {
+  display: none;
+}
+
+.detail-send-target-select {
+  max-width: 140px;
+  font-size: 10.5px;
+}
+
 .view-switch {
   height: 30px;
   display: inline-flex;

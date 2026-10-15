@@ -289,6 +289,41 @@ function watchWorkflowKey() {
   host.setInterval(() => onChange(resolveCurrentWorkflowKey()), 800);
 }
 
+/** Receiving-scheduler bridge published by the ComfyUI page (same origin). */
+function sendTargetBridge() {
+  try {
+    return comfyHostWindow()?.__pm4aSendTarget || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderSendTargets() {
+  const bridge = state.browserMode === "comfy" ? sendTargetBridge() : null;
+  const options = bridge?.options() || [];
+  const current = options.length ? bridge.current() : "";
+  for (const select of document.querySelectorAll(".send-target-select")) {
+    select.hidden = !options.length;
+    if (select.hidden) continue;
+    select.replaceChildren();
+    if (!current) select.append(new Option(t("选择接收调度器"), ""));
+    for (const option of options) select.append(new Option(option.label, option.value));
+    select.value = current;
+  }
+}
+
+function watchSendTarget() {
+  const bridge = sendTargetBridge();
+  if (!bridge) return;
+  const unsubscribe = bridge.subscribe(renderSendTargets);
+  window.addEventListener("pagehide", unsubscribe, { once: true });
+  for (const select of document.querySelectorAll(".send-target-select")) {
+    select.addEventListener("change", () => bridge.set(select.value));
+    select.addEventListener("pointerenter", renderSendTargets);
+  }
+  renderSendTargets();
+}
+
 let chromeWorkflowKey = resolveCurrentWorkflowKey();
 let chromeSwitching = false;
 
@@ -2365,6 +2400,7 @@ function applyBrowserMode() {
   $("add-prompt-negative-label").textContent = naiMode
     ? t("NAI 负面提示词")
     : t("负面提示词");
+  renderSendTargets();
 }
 
 function setBrowserMode(mode) {
@@ -3795,6 +3831,8 @@ async function sendByKey(key, slot, button) {
         body: JSON.stringify(request.body),
       });
     } else {
+      const targetError = sendTargetBridge()?.error();
+      if (targetError) throw new Error(targetError);
       const entry = await getEntry(key);
       const rawRequest = buildNaiSlotRequest(
         entry,
@@ -6404,6 +6442,7 @@ async function init() {
   setupCreateImageDropZone();
   setupImportPromptDropZone();
   setupInfiniteScroll();
+  watchSendTarget();
   updateRecursiveButton();
   clearInspector();
   await loadTree();

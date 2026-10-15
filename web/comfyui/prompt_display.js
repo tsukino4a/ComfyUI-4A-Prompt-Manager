@@ -23,37 +23,22 @@ import {
 import { appendNaiCharacterLines } from "/pm4a/static/nai_settings.js";
 import { configureComfyI18n, t } from "./i18n.js";
 import {
-  TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY,
-  TARGET_LORA_PROPERTY,
-  TARGET_NODE_PROPERTY,
-  TARGET_PARAMETERS_PROPERTY,
-  applyDoubleSampleFromPayload,
-  applyInputParametersFromPayload,
-  applyLoraFromPayload,
   applyModelsFromPayload,
-  applyParameterSettingsFromPayload,
   applyPositiveFromPayload,
-  connectedScheduler,
-  conversionRepairNotice,
-  convertNovelAITexts,
+  applyRoutedLora,
+  applyRoutedParameterSettings,
   displayModelType,
   displayTrackName,
-  doubleSampleParameterNodes,
-  findSourceScheduler,
-  graphNodeById,
-  inputParameterNodes,
-  isScheduler,
   localeJoin,
-  loraLoaderNodes,
   modelTargetLabel,
   modelTargetNodes,
   modelTargetSpec,
   readImagePromptSnapshot,
-  schedulerNodes,
+  sendTrackFromPayload,
   setWidgetValue,
-  syncBypassSwitchFromDoubleSample,
   withGraphChangeTransaction,
 } from "./meta_apply_core.js";
+import { createSendTargetSelect } from "./send_target.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
 const DISPLAY_NODE_CLASS = "Prompt Display (4A Prompt Manager)";
@@ -158,7 +143,7 @@ function injectStyles() {
     .pm4a-display-summary { min-height:28px; padding:3px 5px 3px 7px; display:flex; align-items:center; gap:6px; border:1px solid #464a50; border-radius:5px; background:#292c30; }
     .pm4a-display-summary-title { flex:1; min-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#e6e8ea; font-weight:700; }
     .pm4a-display-status { min-width:0; max-width:42%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#9ca3aa; text-align:right; }
-    .pm4a-display-target { width:126px; height:24px; min-width:0; padding:2px 5px; border:1px solid #4b4f55; border-radius:4px; color:#ddd; background:#1b1d20; font:inherit; }
+    .pm4a-display-target { width:150px; height:24px; min-width:0; padding:2px 5px; border:1px solid #4b4f55; border-radius:4px; color:#ddd; background:#1b1d20; font:inherit; }
     .pm4a-display-live-button, .pm4a-display-meta-button { height:24px; padding:2px 7px; border:0; border-radius:4px; color:#c9cdd1; background:#3a3e43; cursor:pointer; font:inherit; white-space:nowrap; }
     .pm4a-display-live-button:hover, .pm4a-display-meta-button:hover { color:#fff; background:#464b51; }
     .pm4a-display-workspace { flex:1; min-height:0; display:flex; gap:0; overflow:hidden; }
@@ -197,8 +182,7 @@ function injectStyles() {
     .pm4a-display-copy:hover, .pm4a-display-add:hover, .pm4a-display-return:hover { background:#3b4046; }
     .pm4a-display-copy:disabled, .pm4a-display-add:disabled, .pm4a-display-return:disabled { opacity:.35; cursor:default; background:transparent; }
     .pm4a-display-copy svg, .pm4a-display-add svg, .pm4a-display-return svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
-    .pm4a-display-parameter-target, .pm4a-display-double-sample-target, .pm4a-display-lora-target, .pm4a-display-model-target { width:142px; height:24px; min-width:0; padding:2px 5px; border:1px solid #4b5359; border-radius:4px; color:#ddd; background:#1b1d20; font:inherit; }
-    .pm4a-display-model-target { width:132px; flex:0 1 132px; }
+    .pm4a-display-model-target { width:132px; height:24px; flex:0 1 132px; min-width:0; padding:2px 5px; border:1px solid #4b5359; border-radius:4px; color:#ddd; background:#1b1d20; font:inherit; }
     .pm4a-display-parameter-grid { padding:5px; display:flex; flex-wrap:wrap; align-items:stretch; gap:4px; border-top:1px solid #424b50; }
     .pm4a-display-parameter-item { flex:0 0 auto; width:max-content; max-width:100%; min-width:0; padding:3px 6px; display:flex; align-items:baseline; gap:5px; border:1px solid #454d52; border-radius:4px; background:#1b1e20; }
     .pm4a-display-parameter-label { flex:0 0 auto; color:#99a2aa; font-size:10px; font-weight:650; letter-spacing:0.04em; line-height:1.2; }
@@ -391,10 +375,7 @@ function setupDisplayNode(node) {
   summaryTitle.textContent = t("等待本次输出");
   const status = document.createElement("div");
   status.className = "pm4a-display-status";
-  const targetSelect = document.createElement("select");
-  targetSelect.className = "pm4a-display-target";
-  targetSelect.hidden = true;
-  targetSelect.title = t("选择栏目回填目标");
+  const sendTarget = createSendTargetSelect("pm4a-display-target", node);
   const rawMetaButton = document.createElement("button");
   rawMetaButton.type = "button";
   rawMetaButton.className = "pm4a-display-meta-button";
@@ -407,7 +388,7 @@ function setupDisplayNode(node) {
   liveButton.textContent = t("清除快照");
   liveButton.title = t("清除图片快照，改回显示已连接的提示词 JSON（上次执行结果）");
   liveButton.hidden = true;
-  summary.append(summaryTitle, status, targetSelect, rawMetaButton, liveButton);
+  summary.append(summaryTitle, status, sendTarget.element, rawMetaButton, liveButton);
 
   const list = document.createElement("div");
   list.className = "pm4a-display-list";
@@ -654,57 +635,22 @@ function setupDisplayNode(node) {
   };
 
   const setStatus = (message) => { status.textContent = message || ""; };
-
-  const refreshTargetSelect = (payload) => {
-    const graph = node.graph || app.graph;
-    const schedulers = schedulerNodes(graph);
-    const unambiguous = connectedScheduler(node)
-      || (isScheduler(graphNodeById(graph, payload?.scheduler_node_id))
-        ? graphNodeById(graph, payload.scheduler_node_id)
-        : null)
-      || (schedulers.length === 1 ? schedulers[0] : null);
-    targetSelect.hidden = Boolean(unambiguous) || schedulers.length < 2;
-    if (targetSelect.hidden) return;
-
-    const previous = String(node.properties?.[TARGET_NODE_PROPERTY] || "");
-    targetSelect.replaceChildren();
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = t("选择 Scheduler");
-    targetSelect.appendChild(placeholder);
-    for (const scheduler of schedulers) {
-      const option = document.createElement("option");
-      option.value = String(scheduler.id);
-      option.textContent = scheduler.title || `Scheduler #${scheduler.id}`;
-      targetSelect.appendChild(option);
-    }
-    targetSelect.value = schedulers.some((scheduler) => String(scheduler.id) === previous) ? previous : "";
-  };
-
-  targetSelect.onchange = () => {
-    node.properties = node.properties || {};
-    node.properties[TARGET_NODE_PROPERTY] = targetSelect.value;
-    setStatus(targetSelect.value ? t("已选择回填目标") : "");
+  const settingsResultText = ({ applied, errors }) => {
+    const successText = applied.length
+      ? t("已应用：{applied}", { applied: localeJoin(applied, { zh: "、", en: ", " }) })
+      : t("没有可使用的参数");
+    const errorText = errors.length
+      ? t("；未应用 {errors}", { errors: localeJoin(errors, { zh: "；", en: "; " }) })
+      : "";
+    return `${successText}${errorText}`;
   };
 
   const sendBack = async (entry, payload) => {
-    const scheduler = findSourceScheduler(node, payload);
-    if (!scheduler) {
-      setStatus(t("请先选择 Scheduler"));
-      return;
-    }
     try {
       if (payload?.source_type === "novelai") setStatus(t("正在转换 NovelAI 权重…"));
-      const results = await convertNovelAITexts(payload, [entry.text]);
-      const converted = { ...entry, text: results[0]?.text ?? entry.text };
-      const displayName = displayTrackName(entry);
-      const accepted = scheduler.__pm4aSchedulerReceiveTrack?.(converted, "replace");
-      const notice = conversionRepairNotice(results);
-      setStatus(accepted
-        ? t("已回填“{name}”{notice}", { name: displayName, notice })
-        : t("未找到“{name}”栏目", { name: displayName }));
+      setStatus(await sendTrackFromPayload(node, payload, entry));
     } catch (error) {
-      setStatus(t("NovelAI 转换失败：{error}", { error: error.message || error }));
+      setStatus(String(error.message || error));
     }
   };
 
@@ -926,67 +872,17 @@ function setupDisplayNode(node) {
     titleGroup.className = "pm4a-display-card-title-group";
     titleGroup.appendChild(title);
 
-    const parameterTarget = document.createElement("select");
-    parameterTarget.className = "pm4a-display-parameter-target";
-    parameterTarget.title = t("选择参数发送目标");
-    const refreshParameterTargets = () => {
-      const graph = node.graph || app.graph;
-      const targets = inputParameterNodes(graph);
-      const previous = String(node.properties?.[TARGET_PARAMETERS_PROPERTY] || "");
-      parameterTarget.replaceChildren();
-      if (targets.length > 1) {
-        const placeholder = document.createElement("option");
-        placeholder.value = "";
-        placeholder.textContent = t("选择参数节点");
-        parameterTarget.appendChild(placeholder);
-      }
-      for (const target of targets) {
-        const option = document.createElement("option");
-        option.value = String(target.id);
-        option.textContent = target.title || t("参数节点 #{id}", { id: target.id });
-        parameterTarget.appendChild(option);
-      }
-      const remembered = targets.find((target) => String(target.id) === previous);
-      if (remembered) parameterTarget.value = previous;
-      else if (targets.length === 1) parameterTarget.value = String(targets[0].id);
-      else parameterTarget.value = "";
-      parameterTarget.hidden = targets.length < 2;
-    };
-    refreshParameterTargets();
-    parameterTarget.onchange = () => {
-      node.properties = node.properties || {};
-      node.properties[TARGET_PARAMETERS_PROPERTY] = parameterTarget.value;
-      setStatus(parameterTarget.value ? t("已选择参数目标") : "");
-    };
-
     const sendButton = document.createElement("button");
     sendButton.type = "button";
     sendButton.className = "pm4a-display-return";
     sendButton.innerHTML = RETURN_ICON;
     sendButton.title = t("发送到 4A Input Parameters");
     sendButton.setAttribute("aria-label", sendButton.title);
-    const applyParameters = () => {
-      refreshParameterTargets();
-      if (parameterTarget.value) {
-        node.properties = node.properties || {};
-        node.properties[TARGET_PARAMETERS_PROPERTY] = parameterTarget.value;
-      }
-      const message = applyInputParametersFromPayload(node, { parameters });
-      if (!message) throw new Error(t("没有可发送的生成参数"));
-      // Single-pass send also turns Bypass OFF when a switch exists.
-      const bypassMessage = syncBypassSwitchFromDoubleSample(node, false);
-      return {
-        message: localeJoin([message, bypassMessage].filter(Boolean), { zh: "；", en: "; " }),
-      };
-    };
+    // Without double-sample fields this also turns Bypass OFF when a switch exists.
     sendButton.onclick = () => {
-      try {
-        setStatus(applyParameters().message);
-      } catch (error) {
-        setStatus(t("参数发送失败：{error}", { error: error.message || error }));
-      }
+      setStatus(settingsResultText(applyRoutedParameterSettings(node, { parameters })));
     };
-    header.append(titleGroup, parameterTarget, sendButton);
+    header.append(titleGroup, sendButton);
 
     const grid = document.createElement("div");
     grid.className = "pm4a-display-parameter-grid";
@@ -1004,13 +900,6 @@ function setupDisplayNode(node) {
       grid.appendChild(item);
     }
     card.append(header, grid);
-    card.__pm4aCommitTargets = () => {
-      refreshParameterTargets();
-      if (parameterTarget.value) {
-        node.properties = node.properties || {};
-        node.properties[TARGET_PARAMETERS_PROPERTY] = parameterTarget.value;
-      }
-    };
     return card;
   };
 
@@ -1040,68 +929,18 @@ function setupDisplayNode(node) {
     titleGroup.className = "pm4a-display-card-title-group";
     titleGroup.appendChild(title);
 
-    const parameterTarget = document.createElement("select");
-    parameterTarget.className = "pm4a-display-double-sample-target";
-    parameterTarget.title = t("选择双采样参数发送目标");
-    const refreshParameterTargets = () => {
-      const graph = node.graph || app.graph;
-      const targets = doubleSampleParameterNodes(graph);
-      const previous = String(
-        node.properties?.[TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY] || "",
-      );
-      parameterTarget.replaceChildren();
-      if (targets.length > 1) {
-        const placeholder = document.createElement("option");
-        placeholder.value = "";
-        placeholder.textContent = t("选择双采样参数节点");
-        parameterTarget.appendChild(placeholder);
-      }
-      for (const target of targets) {
-        const option = document.createElement("option");
-        option.value = String(target.id);
-        option.textContent = target.title || t("双采样参数节点 #{id}", { id: target.id });
-        parameterTarget.appendChild(option);
-      }
-      const remembered = targets.find((target) => String(target.id) === previous);
-      if (remembered) parameterTarget.value = previous;
-      else if (targets.length === 1) parameterTarget.value = String(targets[0].id);
-      else parameterTarget.value = "";
-      parameterTarget.hidden = targets.length < 2;
-    };
-    refreshParameterTargets();
-    parameterTarget.onchange = () => {
-      node.properties = node.properties || {};
-      node.properties[TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY] = parameterTarget.value;
-      setStatus(parameterTarget.value ? t("已选择双采样参数目标") : "");
-    };
-
     const sendButton = document.createElement("button");
     sendButton.type = "button";
     sendButton.className = "pm4a-display-return";
     sendButton.innerHTML = RETURN_ICON;
     sendButton.title = t("发送到 4A Double Sample Parameters");
     sendButton.setAttribute("aria-label", sendButton.title);
-    const applyParameters = () => {
-      refreshParameterTargets();
-      if (parameterTarget.value) {
-        node.properties = node.properties || {};
-        node.properties[TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY] = parameterTarget.value;
-      }
-      const message = applyDoubleSampleFromPayload(node, { double_sample_parameters: parameters });
-      if (!message) throw new Error(t("没有可发送的双采样参数"));
-      const bypassMessage = syncBypassSwitchFromDoubleSample(node, true);
-      return {
-        message: localeJoin([message, bypassMessage].filter(Boolean), { zh: "；", en: "; " }),
-      };
-    };
     sendButton.onclick = () => {
-      try {
-        setStatus(applyParameters().message);
-      } catch (error) {
-        setStatus(t("双采样参数发送失败：{error}", { error: error.message || error }));
-      }
+      setStatus(settingsResultText(
+        applyRoutedParameterSettings(node, { double_sample_parameters: parameters }),
+      ));
     };
-    header.append(titleGroup, parameterTarget, sendButton);
+    header.append(titleGroup, sendButton);
 
     const grid = document.createElement("div");
     grid.className = "pm4a-display-parameter-grid";
@@ -1119,13 +958,6 @@ function setupDisplayNode(node) {
       grid.appendChild(item);
     }
     card.append(header, grid);
-    card.__pm4aCommitTargets = () => {
-      refreshParameterTargets();
-      if (parameterTarget.value) {
-        node.properties = node.properties || {};
-        node.properties[TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY] = parameterTarget.value;
-      }
-    };
     return card;
   };
 
@@ -1158,38 +990,6 @@ function setupDisplayNode(node) {
     };
     titleGroup.append(title, copyButton);
 
-    const loraTarget = document.createElement("select");
-    loraTarget.className = "pm4a-display-lora-target";
-    loraTarget.title = t("选择 LoRA Loader");
-    const refreshLoraTargets = () => {
-      const targets = loraLoaderNodes(node.graph || app.graph);
-      const previous = String(node.properties?.[TARGET_LORA_PROPERTY] || "");
-      loraTarget.replaceChildren();
-      if (targets.length > 1) {
-        const placeholder = document.createElement("option");
-        placeholder.value = "";
-        placeholder.textContent = t("选择 LoRA Loader");
-        loraTarget.appendChild(placeholder);
-      }
-      for (const target of targets) {
-        const option = document.createElement("option");
-        option.value = String(target.id);
-        option.textContent = target.title || `LoRA Loader #${target.id}`;
-        loraTarget.appendChild(option);
-      }
-      const remembered = targets.find((target) => String(target.id) === previous);
-      if (remembered) loraTarget.value = previous;
-      else if (targets.length === 1) loraTarget.value = String(targets[0].id);
-      else loraTarget.value = "";
-      loraTarget.hidden = targets.length < 2;
-    };
-    refreshLoraTargets();
-    loraTarget.onchange = () => {
-      node.properties = node.properties || {};
-      node.properties[TARGET_LORA_PROPERTY] = loraTarget.value;
-      setStatus(loraTarget.value ? t("已选择 LoRA Loader") : "");
-    };
-
     const sendButton = document.createElement("button");
     sendButton.type = "button";
     sendButton.className = "pm4a-display-return";
@@ -1197,13 +997,8 @@ function setupDisplayNode(node) {
     sendButton.title = t("替换 LoraManager 的 LoRA 串");
     sendButton.setAttribute("aria-label", sendButton.title);
     const applyLora = async () => {
-      refreshLoraTargets();
-      if (loraTarget.value) {
-        node.properties = node.properties || {};
-        node.properties[TARGET_LORA_PROPERTY] = loraTarget.value;
-      }
       // Display keeps the original (possibly wrong) names; remap happens inside apply.
-      const message = await applyLoraFromPayload(node, { loras });
+      const message = await applyRoutedLora(node, { loras });
       if (!message) throw new Error(t("没有可发送的 LoRA 串"));
       return { message };
     };
@@ -1214,7 +1009,7 @@ function setupDisplayNode(node) {
           setStatus(t("LoRA 发送失败：{error}", { error: error.message || error }));
         });
     };
-    header.append(titleGroup, loraTarget, sendButton);
+    header.append(titleGroup, sendButton);
 
     const body = document.createElement("div");
     body.className = "pm4a-display-card-body";
@@ -1225,13 +1020,6 @@ function setupDisplayNode(node) {
     text.value = textValue;
     body.appendChild(text);
     card.append(header, body);
-    card.__pm4aCommitTargets = () => {
-      refreshLoraTargets();
-      if (loraTarget.value) {
-        node.properties = node.properties || {};
-        node.properties[TARGET_LORA_PROPERTY] = loraTarget.value;
-      }
-    };
     card.__pm4aApplyLora = applyLora;
     scheduleTextResize();
     return card;
@@ -1426,7 +1214,7 @@ function setupDisplayNode(node) {
         payload.image_dimensions?.height,
       );
     }
-    refreshTargetSelect(payload);
+    sendTarget.refresh();
 
     if (!payload) {
       summaryTitle.textContent = raw ? t("JSON 无法解析") : t("等待本次输出");
@@ -1486,9 +1274,7 @@ function setupDisplayNode(node) {
           }
 
           // Params / double-sample / Bypass: same helper as Meta Apply.
-          parametersCard?.__pm4aCommitTargets?.();
-          doubleSampleParametersCard?.__pm4aCommitTargets?.();
-          const paramResult = applyParameterSettingsFromPayload(node, {
+          const paramResult = applyRoutedParameterSettings(node, {
             parameters: payload.parameters,
             double_sample_parameters: payload.double_sample_parameters,
           });
@@ -1496,7 +1282,6 @@ function setupDisplayNode(node) {
           errors.push(...paramResult.errors);
 
           if (loraCard?.__pm4aApplyLora) {
-            loraCard.__pm4aCommitTargets?.();
             try {
               await loraCard.__pm4aApplyLora();
               applied.push("LoRA");
@@ -1627,8 +1412,16 @@ function setupDisplayNode(node) {
 
   bindOfficialImageDrop(main, { app, node, onDrop: importTransfer });
 
+  const originalOnConnectionsChange = node.onConnectionsChange;
+  node.onConnectionsChange = function () {
+    const result = originalOnConnectionsChange?.apply(this, arguments);
+    sendTarget.refresh();
+    return result;
+  };
+
   const originalOnRemoved = node.onRemoved;
   node.onRemoved = function () {
+    sendTarget.dispose();
     clearImagePreview(true);
     listResizeObserver?.disconnect();
     if (textResizeFrame) cancelAnimationFrame(textResizeFrame);

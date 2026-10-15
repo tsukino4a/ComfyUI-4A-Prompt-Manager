@@ -61,9 +61,6 @@ class PromptScheduler4A:
                 ),
             },
             "optional": _FlexibleStringInputs(),
-            "hidden": {
-                "unique_id": "UNIQUE_ID",
-            },
         }
 
     RETURN_TYPES = ("STRING", "STRING", "STRING")
@@ -87,7 +84,6 @@ class PromptScheduler4A:
         execution_index: int,
         run_id: str,
         seed: int,
-        unique_id: str | int | None = None,
         **external_inputs,
     ):
         config = scheduler.normalize_config(config_json)
@@ -187,7 +183,6 @@ class PromptScheduler4A:
             )
             prompt_json = json.dumps(
                 {
-                    "scheduler_node_id": "" if unique_id is None else str(unique_id),
                     "tracks": resolved_tracks,
                     "positive": positive,
                     "negative": negative,
