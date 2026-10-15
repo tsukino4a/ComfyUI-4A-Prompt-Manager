@@ -125,7 +125,7 @@
       "optimize_png": {"name": "Optimize PNG", "tooltip": "Optimize PNG files while saving."},
       "embed_workflow": {"name": "Embed Workflow", "tooltip": "Embed ComfyUI workflow data in supported image formats."},
       "save_workflow_as_json": {"name": "Save Workflow as JSON", "tooltip": "Also save the workflow as a JSON sidecar file."},
-      "model_name": {"name": "Model Name", "tooltip": "Checkpoint or UNet filename; its SHA256 is resolved automatically."},
+      "model_name": {"name": "Model Name", "tooltip": "Checkpoint or UNet filename; its SHA256 is resolved automatically. When unconnected, the only checkpoint or UNet upstream of the images is used."},
       "loaded_loras": {"name": "Loaded LoRAs", "tooltip": "Lora Manager loaded_loras output."},
       "prompt_json": {"name": "Prompt JSON", "tooltip": "Prompt Scheduler prompt_json output."},
       "positive": {

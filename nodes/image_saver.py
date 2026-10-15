@@ -284,6 +284,30 @@ def collect_resources(
     return resources
 
 
+def upstream_model_name(prompt: dict[str, Any] | None, node_id: Any) -> str:
+    """Return the only checkpoint/UNet loaded upstream of this node's images input."""
+
+    graph = prompt or {}
+    node = graph.get(str(node_id))
+    link = node.get("inputs", {}).get("images") if isinstance(node, dict) else None
+    pending = [link[0]] if isinstance(link, list) and link else []
+    visited: set[str] = set()
+    names: set[str] = set()
+    while pending:
+        current = str(pending.pop())
+        if current in visited:
+            continue
+        visited.add(current)
+        upstream = graph.get(current)
+        inputs = upstream.get("inputs", {}) if isinstance(upstream, dict) else {}
+        for key, value in inputs.items():
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[1], int):
+                pending.append(value[0])
+            elif key in ("unet_name", "ckpt_name") and isinstance(value, str) and value.strip():
+                names.add(value.strip())
+    return names.pop() if len(names) == 1 else ""
+
+
 def append_loaded_loras(positive: str, loaded_loras: str) -> str:
     """Append only LoRA tags not already present in the positive prompt."""
 
@@ -747,7 +771,10 @@ class ImageSaver4A:
                     "STRING",
                     {
                         "forceInput": True,
-                        "tooltip": "checkpoint or UNet filename; its SHA256 is resolved automatically",
+                        "tooltip": (
+                            "checkpoint or UNet filename; its SHA256 is resolved automatically. "
+                            "When unconnected, the only checkpoint/UNet upstream of images is used"
+                        ),
                     },
                 ),
                 "loaded_loras": (
@@ -811,6 +838,7 @@ class ImageSaver4A:
             "hidden": {
                 "prompt": "PROMPT",
                 "extra_pnginfo": "EXTRA_PNGINFO",
+                "unique_id": "UNIQUE_ID",
             },
         }
 
@@ -853,6 +881,7 @@ class ImageSaver4A:
         show_preview: bool = True,
         prompt: dict[str, Any] | None = None,
         extra_pnginfo: dict[str, Any] | None = None,
+        unique_id: str | None = None,
     ) -> dict[str, Any]:
         extension = str(extension).lower()
         if extension not in {"png", "jpeg", "jpg", "webp"}:
@@ -872,7 +901,7 @@ class ImageSaver4A:
 
         positive, negative = resolve_prompt_texts(prompt_json, positive, negative)
         loaded_loras = str(loaded_loras or "").strip()
-        model_name = str(model_name or "").strip()
+        model_name = str(model_name or "").strip() or upstream_model_name(prompt, unique_id)
         resources = collect_resources(model_name, positive, negative, loaded_loras)
 
         prompt_document = build_prompt_document(

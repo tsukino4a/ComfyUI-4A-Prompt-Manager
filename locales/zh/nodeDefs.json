@@ -125,7 +125,7 @@
       "optimize_png": {"name": "优化 PNG", "tooltip": "保存时优化 PNG 文件。"},
       "embed_workflow": {"name": "嵌入工作流", "tooltip": "在支持的图像格式中嵌入 ComfyUI 工作流数据。"},
       "save_workflow_as_json": {"name": "工作流另存为 JSON", "tooltip": "同时将工作流保存为 JSON 旁车文件。"},
-      "model_name": {"name": "模型名称", "tooltip": "检查点或 UNet 文件名；系统会自动解析其 SHA256。"},
+      "model_name": {"name": "模型名称", "tooltip": "检查点或 UNet 文件名；系统会自动解析其 SHA256。未连接时自动使用图像上游唯一的检查点或 UNet。"},
       "loaded_loras": {"name": "已加载 LoRA", "tooltip": "来自 Lora Manager 的 loaded_loras 输出。"},
       "prompt_json": {"name": "提示词 JSON", "tooltip": "来自提示词调度器的 prompt_json 输出。"},
       "positive": {
