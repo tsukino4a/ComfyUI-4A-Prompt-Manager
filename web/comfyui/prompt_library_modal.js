@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { configureComfyI18n, pm4aFetch, t } from "./i18n.js";
+import { injectStyle } from "./widget_utils.js";
 import {
   hasSupportedImageTransfer,
   imageFileFromTransfer,
@@ -21,18 +22,8 @@ const CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12
 
 const LAST_FOLDER_KEY = "pm4a_comfy_add_prompt_folder";
 
-const LIBRARY_MODAL_STYLE_VERSION = "compact-labels-2";
-
 function injectStyles() {
-  let style = document.getElementById("pm4a-library-modal-styles");
-  if (style?.dataset?.version === LIBRARY_MODAL_STYLE_VERSION) return;
-  if (!style) {
-    style = document.createElement("style");
-    style.id = "pm4a-library-modal-styles";
-    document.head.appendChild(style);
-  }
-  style.dataset.version = LIBRARY_MODAL_STYLE_VERSION;
-  style.textContent = `
+  injectStyle("pm4a-library-modal-styles", `
     .pm4a-library-modal-overlay { position:fixed; inset:0; z-index:100000; padding:18px; display:grid; place-items:center; pointer-events:none; background:rgba(7,9,11,.72); color:#e7e9eb; font:12px/1.4 system-ui,sans-serif; }
     .pm4a-library-modal-overlay * { box-sizing:border-box; }
     .pm4a-library-modal { width:min(680px,calc(100vw - 36px)); max-height:calc(100vh - 36px); overflow:hidden; display:flex; flex-direction:column; pointer-events:auto; border:1px solid #555b62; border-radius:8px; background:#25292d; box-shadow:0 16px 48px rgba(0,0,0,.55); }
@@ -116,7 +107,7 @@ function injectStyles() {
     .pm4a-library-toast { position:fixed; z-index:100001; left:50%; bottom:24px; max-width:min(560px,calc(100vw - 32px)); padding:8px 12px; border:1px solid #4c555c; border-radius:6px; color:#e9ecee; background:#292e32; box-shadow:0 8px 28px rgba(0,0,0,.45); transform:translateX(-50%); font:12px/1.4 system-ui,sans-serif; }
     .pm4a-library-toast.warning { border-color:#816a3f; color:#f0d49e; }
     @media (max-width:620px) { .pm4a-library-modal-top, .pm4a-library-modal-secondary { grid-template-columns:1fr; } }
-  `;
+  `);
 }
 
 async function requestJson(path, options = {}) {

@@ -4,6 +4,7 @@ import { configureComfyI18n, pm4aFetch, t } from "./i18n.js";
 import { ADD_PROMPT_ICON, openPromptLibraryModal } from "./prompt_library_modal.js";
 import { attachAutocompletePlus } from "./autocomplete_plus_attach.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
+import { hideWidget, injectStyle } from "./widget_utils.js";
 import {
   TARGET_DOUBLE_SAMPLE_PARAMETERS_PROPERTY,
   TARGET_LORA_PROPERTY,
@@ -220,13 +221,7 @@ function resolveSchedulerSeed(node) {
 }
 
 function injectStyles() {
-  let style = document.getElementById("pm4a-scheduler-styles");
-  if (!style) {
-    style = document.createElement("style");
-    style.id = "pm4a-scheduler-styles";
-    document.head.appendChild(style);
-  }
-  style.textContent = `
+  injectStyle("pm4a-scheduler-styles", `
     .pm4a-scheduler { position:relative; width:100%; height:100%; min-height:0; display:flex; flex-direction:column; gap:8px; padding:0 4px 2px; box-sizing:border-box; overflow:hidden; color:#e8e8e8; background:transparent; border:0; border-radius:0; font:12px/1.35 system-ui,sans-serif; }
     .pm4a-scheduler * { box-sizing:border-box; }
     .pm4a-scheduler input, .pm4a-scheduler textarea, .pm4a-scheduler select { width:100%; color:#eee; background:#151719; border:1px solid #4b4f55; border-radius:4px; padding:5px 7px; font:inherit; }
@@ -306,7 +301,7 @@ function injectStyles() {
     .pm4a-add-track { flex:0 0 auto; border-style:dashed !important; }
     .pm4a-track-input-socket { position:absolute; z-index:30; width:8px; height:8px; padding:0; box-sizing:border-box; border:1.25px solid #020402; border-radius:50%; background:transparent; box-shadow:inset 0 0 1px .5px rgba(75,255,103,.72), 0 0 1px .5px rgba(70,245,96,.58); transform:translate(-50%,-50%); cursor:crosshair; touch-action:none; }
     .pm4a-track-input-socket.connected { border-color:#78f28a; background:#78f28a; box-shadow:0 0 1px rgba(70,245,96,.45); }
-  `;
+  `);
 }
 
 async function requestJson(path, { method = "GET", body } = {}) {
@@ -340,14 +335,6 @@ async function fetchJson(path, body) {
   return requestJson(path, { method: "POST", body });
 }
 
-function hideWidget(widget) {
-  if (!widget) return;
-  widget.hidden = true;
-  if (widget.element) widget.element.style.display = "none";
-  if (widget.inputEl) widget.inputEl.style.display = "none";
-  widget.computeSize = () => [0, -4];
-}
-
 app.registerExtension({
   name: "ComfyUI-4A-Prompt-Manager.PromptScheduler",
 
@@ -378,7 +365,7 @@ app.registerExtension({
     if (nodeData.name !== NODE_CLASS) return;
     const original = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
-      original?.apply(this, arguments);
+      const result = original?.apply(this, arguments);
       configureComfyI18n(app);
       injectStyles();
       const node = this;
@@ -386,7 +373,7 @@ app.registerExtension({
       let configWidget = getConfigWidget();
       const indexWidget = node.widgets?.find((widget) => widget.name === "execution_index");
       const runWidget = node.widgets?.find((widget) => widget.name === "run_id");
-      if (!configWidget || !indexWidget || !runWidget) return;
+      if (!configWidget || !indexWidget || !runWidget) return result;
       hideWidget(configWidget);
       hideWidget(indexWidget);
       hideWidget(runWidget);
@@ -1675,6 +1662,7 @@ app.registerExtension({
       node.setSize([520, 710]);
       renderNegative();
       renderTracks();
+      return result;
     };
   },
 });

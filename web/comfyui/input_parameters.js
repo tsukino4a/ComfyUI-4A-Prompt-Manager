@@ -4,6 +4,8 @@ import { useKSamplerMinimumWidth } from "./sampler_node_size.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 import {
   finishParameterReceive,
+  hideWidget,
+  injectStyle,
   matchingOption,
   optionValues,
   receiveSamplerParameters,
@@ -16,10 +18,7 @@ const SWAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h14M
 const DEFAULT_RATIO = "2:3 竖图";
 
 function injectStyles() {
-  if (document.getElementById("pm4a-input-parameters-styles")) return;
-  const style = document.createElement("style");
-  style.id = "pm4a-input-parameters-styles";
-  style.textContent = `
+  injectStyle("pm4a-input-parameters-styles", `
     .pm4a-resolution { width:100%; height:45px; padding:0 16px 1px; display:flex; flex-direction:column; gap:4px; box-sizing:border-box; container-type:inline-size; color:#ddd; font:11px/1 system-ui,sans-serif; }
     .pm4a-resolution * { box-sizing:border-box; }
     .pm4a-resolution-top { display:grid; grid-template-columns:minmax(0,1fr) 20px; gap:4px; }
@@ -39,16 +38,7 @@ function injectStyles() {
       .pm4a-resolution-label { left:8px; }
       .pm4a-resolution-input { padding:1px 7px 1px 38px; }
     }
-  `;
-  document.head.appendChild(style);
-}
-
-function hideWidget(widget) {
-  if (!widget) return;
-  widget.hidden = true;
-  if (widget.element) widget.element.style.display = "none";
-  if (widget.inputEl) widget.inputEl.style.display = "none";
-  widget.computeSize = () => [0, -4];
+  `);
 }
 
 function roundDimension(raw) {

@@ -344,8 +344,9 @@ app.registerExtension({
     if (nodeData.name !== NODE_CLASS) return;
     const originalCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
-      originalCreated?.apply(this, arguments);
+      const result = originalCreated?.apply(this, arguments);
       setupMetaApplyNode(this);
+      return result;
     };
     const originalConfigured = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {

@@ -1,3 +1,22 @@
+export function injectStyle(id, css) {
+  let style = document.getElementById(id);
+  if (style?.textContent === css) return;
+  if (!style) {
+    style = document.createElement("style");
+    style.id = id;
+    document.head.appendChild(style);
+  }
+  style.textContent = css;
+}
+
+export function hideWidget(widget) {
+  if (!widget) return;
+  widget.hidden = true;
+  if (widget.element) widget.element.style.display = "none";
+  if (widget.inputEl) widget.inputEl.style.display = "none";
+  widget.computeSize = () => [0, -4];
+}
+
 export function widgetByName(node, name) {
   return node.widgets?.find((widget) => widget.name === name) || null;
 }

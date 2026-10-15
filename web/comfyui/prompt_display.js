@@ -37,7 +37,7 @@ import {
   sendTrackFromPayload,
   withGraphChangeTransaction,
 } from "./meta_apply_core.js";
-import { setWidgetValue } from "./widget_utils.js";
+import { hideWidget, injectStyle, setWidgetValue } from "./widget_utils.js";
 import { createSendTargetSelect } from "./send_target.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
@@ -134,10 +134,7 @@ function recallPreviewFile(fileName, promptJson) {
 }
 
 function injectStyles() {
-  if (document.getElementById("pm4a-prompt-display-styles")) return;
-  const style = document.createElement("style");
-  style.id = "pm4a-prompt-display-styles";
-  style.textContent = `
+  injectStyle("pm4a-prompt-display-styles", `
     .pm4a-prompt-display { width:100%; height:100%; min-height:0; padding:0 4px 2px; display:flex; flex-direction:column; gap:7px; overflow:hidden; box-sizing:border-box; color:#e8e8e8; background:transparent; border:0; border-radius:0; font:12px/1.35 system-ui,sans-serif; }
     .pm4a-prompt-display * { box-sizing:border-box; }
     .pm4a-display-summary { min-height:28px; padding:3px 5px 3px 7px; display:flex; align-items:center; gap:6px; border:1px solid #464a50; border-radius:5px; background:#292c30; }
@@ -211,8 +208,7 @@ function injectStyles() {
     .pm4a-raw-meta-actions button { height:28px; padding:3px 10px; border:1px solid #50565d; border-radius:5px; color:#d8dce0; background:#373c42; cursor:pointer; font:inherit; }
     .pm4a-raw-meta-actions button:hover { color:#fff; background:#444a51; }
     .pm4a-raw-meta-content { flex:1; min-height:0; margin:0; padding:12px 14px 18px; overflow:auto; color:#d8dde2; background:#151719; font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; tab-size:2; user-select:text; scrollbar-width:thin; }
-  `;
-  document.head.appendChild(style);
+  `);
 }
 
 function firstString(value) {
@@ -328,14 +324,6 @@ function openRawMetadataModal(metadata, fileName = "") {
   document.addEventListener("keydown", onKeyDown, true);
   document.body.appendChild(overlay);
   closeButton.focus();
-}
-
-function hideWidget(widget) {
-  if (!widget) return;
-  widget.hidden = true;
-  if (widget.element) widget.element.style.display = "none";
-  if (widget.inputEl) widget.inputEl.style.display = "none";
-  widget.computeSize = () => [0, -4];
 }
 
 async function writeClipboardText(value) {
@@ -1460,8 +1448,9 @@ app.registerExtension({
 
     const originalCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
-      originalCreated?.apply(this, arguments);
+      const result = originalCreated?.apply(this, arguments);
       setupDisplayNode(this);
+      return result;
     };
 
     const originalConfigured = nodeType.prototype.onConfigure;
@@ -1482,7 +1471,7 @@ app.registerExtension({
 
     const originalExecuted = nodeType.prototype.onExecuted;
     nodeType.prototype.onExecuted = function (message) {
-      originalExecuted?.apply(this, arguments);
+      const result = originalExecuted?.apply(this, arguments);
       const connected = extractPromptConnected(message);
       const wire = extractConnectedJson(message);
       // Cache wire content only when prompt_json was actually connected this run.
@@ -1495,17 +1484,18 @@ app.registerExtension({
         importedImage: this.properties?.[IMPORTED_IMAGE_PROPERTY],
       })) {
         // Image snapshot wins until cleared; do not treat executions as a live stream.
-        return;
+        return result;
       }
       if (!connected) {
         // No prompt_json link: nothing to follow for this execution.
-        return;
+        return result;
       }
       const raw = extractJson(message) ?? wire ?? "";
       this.__pm4aPromptDisplaySetJson?.(raw, {
         source: "scheduler",
         storeConnected: false,
       });
+      return result;
     };
   },
 });

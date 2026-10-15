@@ -135,13 +135,14 @@ app.registerExtension({
 
     const originalOnNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
-      originalOnNodeCreated?.apply(this, arguments);
+      const result = originalOnNodeCreated?.apply(this, arguments);
       // This runs before workflow configuration. New nodes receive a useful
       // default, while loaded/undo-restored nodes overwrite it with their
       // serialized size during configure().
       this.resizable = true;
       this.setSize([...DEFAULT_NODE_SIZE]);
       scheduleBrowserAttachment(this);
+      return result;
     };
   },
 });
