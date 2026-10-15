@@ -35,9 +35,9 @@ import {
   modelTargetSpec,
   readImagePromptSnapshot,
   sendTrackFromPayload,
-  setWidgetValue,
   withGraphChangeTransaction,
 } from "./meta_apply_core.js";
+import { setWidgetValue } from "./widget_utils.js";
 import { createSendTargetSelect } from "./send_target.js";
 import { withSyncedDomWidth } from "./dom_widget_layout.js";
 
@@ -61,7 +61,7 @@ const APPLY_PARAMETERS_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path
 const CHEVRON_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>';
 const TRANSLATABLE_SOURCE_LABELS = new Set(["图片", "通用"]);
 
-export function flattenNovelAIForPromptDisplay(payload) {
+function flattenNovelAIForPromptDisplay(payload) {
   if (payload?.source_type !== "novelai" || !Array.isArray(payload.characters)) {
     return payload;
   }

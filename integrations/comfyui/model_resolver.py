@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -10,8 +9,10 @@ from typing import Any
 
 try:
     from ...support.i18n import tr
+    from ...support.model_hashes import compute_sha256, sidecar_sha256
 except ImportError:  # standalone preview
     from support.i18n import tr  # type: ignore
+    from support.model_hashes import compute_sha256, sidecar_sha256  # type: ignore
 
 
 WIDGET_CATEGORIES = {
@@ -100,45 +101,12 @@ def _index_for(widget_name: str, folder_paths: Any) -> dict[str, Any]:
     return index
 
 
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    value = digest.hexdigest()
-    sidecar = path.with_suffix(".sha256")
-    try:
-        sidecar.write_text(value, encoding="utf-8")
-    except OSError:
-        pass
-    return value
-
-
-def _hash_from_sidecars(path: Path) -> str:
-    """Prefer .sha256 text sidecar, then LM / Comfy metadata.json sha256."""
-    sidecar = path.with_suffix(".sha256")
-    try:
-        value = _hash_text(sidecar.read_text(encoding="utf-8").split()[0])
-        if value:
-            return value
-    except (OSError, IndexError):
-        pass
-    meta = path.with_suffix(".metadata.json")
-    try:
-        payload = json.loads(meta.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
-        return ""
-    if not isinstance(payload, dict):
-        return ""
-    return _hash_text(payload.get("sha256", ""))
-
-
 def _hash_index(index: dict[str, Any]) -> dict[str, list[str]]:
     if index["hashes"] is not None:
         return index["hashes"]
     hashes: dict[str, list[str]] = {}
     for _category, filename, path in index["files"]:
-        value = _hash_from_sidecars(path)
+        value = sidecar_sha256(path)
         if value:
             hashes.setdefault(value, []).append(filename)
     index["hashes"] = hashes
@@ -159,10 +127,8 @@ def _ensure_hash_for_lookup(index: dict[str, Any], wanted_hash: str) -> None:
         if filename in known_files:
             continue
         try:
-            value = _hash_text(_file_sha256(path))
+            value = compute_sha256(path)
         except OSError:
-            continue
-        if not value:
             continue
         hashes.setdefault(value, []).append(filename)
         known_files.add(filename)
@@ -182,10 +148,10 @@ def _hash_for_filename(index: dict[str, Any], filename: str) -> str:
     for _category, name, path in index["files"]:
         if name != wanted:
             continue
-        value = _hash_from_sidecars(path)
+        value = sidecar_sha256(path)
         if not value:
             try:
-                value = _hash_text(_file_sha256(path))
+                value = compute_sha256(path)
             except OSError:
                 value = ""
         if value:

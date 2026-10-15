@@ -8,7 +8,6 @@ See THIRD_PARTY_NOTICES.md for the complete notice.
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import logging
 import os
@@ -28,6 +27,11 @@ except ImportError:  # Lightweight standalone tests can still use pure helpers.
 
 from .double_sample_parameters import DOUBLE_SAMPLE_SCHEMA
 from .input_parameters import INPUT_PARAMETERS_SCHEMA
+
+try:
+    from ..support.model_hashes import compute_sha256, sidecar_sha256
+except ImportError:  # standalone import check
+    from support.model_hashes import compute_sha256, sidecar_sha256  # type: ignore
 
 
 _UNSAFE_FILENAME = re.compile(r'[<>:"|?*\x00-\x1f]')
@@ -200,27 +204,11 @@ def _sha256(path: Path) -> str:
     if cached and cached[:2] == signature:
         return cached[2]
 
-    sidecar = path.with_suffix(".sha256")
-    if sidecar.is_file():
-        try:
-            saved = sidecar.read_text(encoding="utf-8").strip().lower()
-            if re.fullmatch(r"[0-9a-f]{64}", saved):
-                _HASH_CACHE[cache_key] = (*signature, saved)
-                return saved
-        except OSError:
-            pass
-
-    logger.debug("calculating SHA256 for %s", path.stem)
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    value = digest.hexdigest()
+    value = sidecar_sha256(path)
+    if not value:
+        logger.debug("calculating SHA256 for %s", path.stem)
+        value = compute_sha256(path)
     _HASH_CACHE[cache_key] = (*signature, value)
-    try:
-        sidecar.write_text(value, encoding="utf-8")
-    except OSError:
-        pass
     return value
 
 

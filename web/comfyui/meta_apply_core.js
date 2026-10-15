@@ -6,6 +6,7 @@ import {
 } from "/pm4a/static/image_prompt_metadata.js";
 import { getLocale, pm4aFetch, t } from "./i18n.js";
 import { resolveTargetSchedulers } from "./send_target.js";
+import { setWidgetValue } from "./widget_utils.js";
 
 export const INPUT_PARAMETERS_NODE_CLASS = "Input Parameters (4A Prompt Manager)";
 export const DOUBLE_SAMPLE_PARAMETERS_NODE_CLASS = "Double Sample Parameters (4A Prompt Manager)";
@@ -248,17 +249,6 @@ export async function remapLoraTextFromPayload(loras) {
     tags.push(`<lora:${localName}:${strength}>`);
   }
   return tags.join(" ");
-}
-
-export function setWidgetValue(node, widget, value) {
-  if (!widget) return;
-  widget.value = value;
-  if (widget.inputEl) widget.inputEl.value = value;
-  if (Array.isArray(node.widgets_values)) {
-    const index = node.widgets.indexOf(widget);
-    if (index >= 0) node.widgets_values[index] = value;
-  }
-  widget.callback?.(value);
 }
 
 export function replaceModelWidget(target, value) {

@@ -1,28 +1,11 @@
 import { app } from "../../scripts/app.js";
 import { t } from "./i18n.js";
+import { setWidgetValue, widgetByName } from "./widget_utils.js";
 
 const NODE_CLASS = "Bypass Switch (4A Prompt Manager)";
 const MODE_ALWAYS = 0;
 const MODE_BYPASS = 4;
 const CONTROL_PREFIX = "control_";
-
-function widgetByName(node, name) {
-  return node.widgets?.find((widget) => widget.name === name) || null;
-}
-
-function setWidgetValue(node, widget, value) {
-  if (!widget || Object.is(widget.value, value)) return false;
-  const previous = widget.value;
-  widget.value = value;
-  if (widget.inputEl) widget.inputEl.value = value;
-  if (Array.isArray(node.widgets_values)) {
-    const index = node.widgets.indexOf(widget);
-    if (index >= 0) node.widgets_values[index] = value;
-  }
-  widget.callback?.(value);
-  node.onWidgetChanged?.(widget.name, value, previous, widget);
-  return true;
-}
 
 function graphLinks(graph) {
   return graph?.links || graph?._links || {};

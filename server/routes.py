@@ -60,7 +60,6 @@ from .routes_tools import (
     handle_nai_settings_apply,
     handle_nai_to_anima,
     handle_scheduler_counts,
-    handle_scheduler_lora_plan,
     handle_scheduler_prepare,
     handle_settings_apply,
 )
@@ -112,7 +111,6 @@ _API_ROUTES = (
     ("POST", "/pm4a/api/convert/anima-to-nai", handle_anima_to_nai),
     ("POST", "/pm4a/api/scheduler/counts", handle_scheduler_counts),
     ("POST", "/pm4a/api/scheduler/prepare", handle_scheduler_prepare),
-    ("POST", "/pm4a/api/scheduler/lora-plan", handle_scheduler_lora_plan),
     ("POST", "/pm4a/api/nai/append-slot", handle_nai_append_slot),
     ("POST", "/pm4a/api/nai/settings/apply", handle_nai_settings_apply),
     ("POST", "/pm4a/api/append-slot", handle_append_slot),

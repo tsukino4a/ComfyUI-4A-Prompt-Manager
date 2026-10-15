@@ -8,7 +8,6 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from pathlib import Path
 from typing import Any, Iterable, Optional
 
 try:
@@ -184,56 +183,6 @@ def track_folder_keys(
         for key in wildcard_keys(track.get("text", ""))
         if _is_sequenceable_key(key, active)
     ]
-
-
-def config_folder_keys(
-    config: Any,
-    resolver: Optional[LibraryWildcardResolver] = None,
-) -> list[str]:
-    clean = normalize_config(config)
-    active = resolver or prompt_library.snapshot_resolver()
-    return list(
-        dict.fromkeys(
-            key
-            for track in clean["tracks"]
-            if track["enabled"]
-            for key in track_folder_keys(track, resolver=active)
-        )
-    )
-
-
-def snapshot_folders(
-    folder_keys: Iterable[str], *, root: Optional[Path] = None
-) -> dict[str, list[dict[str, str]]]:
-    """Compatibility view of selected folders from a structured snapshot."""
-    folders = list(
-        dict.fromkeys(
-            normalize_key(key)
-            for key in folder_keys
-            if isinstance(key, str) and key.strip()
-        )
-    )
-    if not folders:
-        return {}
-
-    prompt_library.ensure_loaded()
-    loaded_root = prompt_library.get_loaded_root().resolve()
-    if root is not None and Path(root).resolve() != loaded_root:
-        raise ValueError("Scheduler snapshot root must be loaded before use")
-    resolver = prompt_library.snapshot_resolver()
-    return {
-        folder: [
-            {
-                "key": candidate.key,
-                "name": resolver.display_paths.get(candidate.key, candidate.key).split("/")[-1],
-                "display_path": resolver.display_paths.get(candidate.key, candidate.key),
-                "content": candidate.content,
-                "negative": candidate.negative,
-            }
-            for candidate in resolver.resolve(folder)
-        ]
-        for folder in folders
-    }
 
 
 def folder_counts(

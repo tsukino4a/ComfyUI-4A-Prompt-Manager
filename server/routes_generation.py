@@ -73,7 +73,6 @@ def _comfy_generation_runtime() -> dict[str, Any]:
             "available_classes": available_classes,
             "output_classes": output_classes,
             "folder_paths": folder_paths,
-            "output_root": Path(folder_paths.get_output_directory()),
             "temp_root": Path(folder_paths.get_temp_directory()),
             "sampler_options": sampler_options,
             "scheduler_options": scheduler_options,
@@ -85,7 +84,6 @@ def _comfy_generation_runtime() -> dict[str, Any]:
             "available_classes": None,
             "output_classes": set(),
             "folder_paths": None,
-            "output_root": preview_root,
             "temp_root": preview_root / "temp",
             "sampler_options": ["euler"],
             "scheduler_options": ["normal"],
@@ -184,7 +182,6 @@ def _generation_context(request: web.Request, *, validate: bool = True) -> dict[
     settings = generation.validate_settings(
         settings,
         analysis,
-        output_root=runtime["output_root"],
         model_options=models or None,
         clip_options=clips or None,
         vae_options=vaes or None,
@@ -250,7 +247,6 @@ async def handle_generation_config_update(request: web.Request) -> web.Response:
         settings = generation.validate_settings(
             raw_settings,
             context["analysis"],
-            output_root=context["runtime"]["output_root"],
             model_options=context["model_options"] or None,
             clip_options=context["clip_options"] or None,
             vae_options=context["vae_options"] or None,
@@ -308,7 +304,6 @@ async def handle_generation_workflow(request: web.Request) -> web.Response:
         settings = generation.validate_settings(
             settings,
             analysis,
-            output_root=runtime["output_root"],
             model_options=models or None,
             clip_options=clips or None,
             vae_options=vaes or None,
@@ -395,7 +390,6 @@ async def handle_generation_finalize(request: web.Request) -> web.Response:
             locator,
             metadata,
             title=title,
-            output_root=context["runtime"]["output_root"],
             temp_root=context["runtime"]["temp_root"],
         )
         entry = None

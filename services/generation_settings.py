@@ -88,7 +88,6 @@ def validate_settings(
     value: object,
     analysis: WorkflowAnalysis,
     *,
-    output_root: Path,
     model_options: list[str] | None = None,
     clip_options: list[str] | None = None,
     vae_options: list[str] | None = None,

@@ -170,7 +170,6 @@ def finalize_image(
     metadata: Mapping[str, Any],
     *,
     title: str,
-    output_root: Path,
     temp_root: Path,
 ) -> dict[str, Any]:
     """Convert a Comfy result to a managed temporary lossy WebP."""

@@ -27,6 +27,7 @@ app.registerExtension({
       const workflowApi = app.extensionManager?.workflow;
       if (typeof workflowApi?.$subscribe === "function") {
         workflowApi.$subscribe(() => publishWorkflowKey());
+        return;
       }
     } catch (_) {
       /* older frontends do not expose a Pinia workflow store */

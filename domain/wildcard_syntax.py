@@ -33,7 +33,6 @@ class ExpansionResult:
     parameters: dict[str, Any] = field(default_factory=dict)
     double_sample_parameters: dict[str, Any] = field(default_factory=dict)
     nai: dict[str, Any] = field(default_factory=dict)
-    negative_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

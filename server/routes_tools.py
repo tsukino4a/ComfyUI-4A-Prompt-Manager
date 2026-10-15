@@ -309,28 +309,6 @@ async def handle_scheduler_prepare(request: web.Request) -> web.Response:
         return _json_error(tr("准备批量运行失败：{error}", error=exc), 500)
 
 
-async def handle_scheduler_lora_plan(request: web.Request) -> web.Response:
-    """Preview LoRA append text for one or more execution indexes."""
-    try:
-        data = await request.json()
-    except Exception:
-        return _json_error("invalid json")
-    try:
-        config = data.get("config", {})
-        plans = scheduler.plan_lora_appends(
-            config,
-            seed=data.get("seed", 0),
-            start_index=data.get("execution_index", data.get("start_index", 0)),
-            task_count=data.get("task_count", 1),
-        )
-        return web.json_response({"success": True, "lora_plans": plans})
-    except (ValueError, FileNotFoundError) as exc:
-        return _json_error(str(exc))
-    except Exception as exc:
-        logger.exception("scheduler lora plan failed")
-        return _json_error(tr("预览 LoRA 计划失败：{error}", error=exc), 500)
-
-
 async def handle_settings_apply(request: web.Request) -> web.Response:
     """Broadcast card settings apply (models / LoRA / parameters) to the canvas."""
     try:

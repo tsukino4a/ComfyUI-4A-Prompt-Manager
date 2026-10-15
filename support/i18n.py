@@ -117,7 +117,6 @@ _EN_MESSAGES = {
         "nai.characters x and y must appear as a pair{label}"
     ),
     "选择种子必须是整数": "Selection seed must be an integer",
-    "预览 LoRA 计划失败：{error}": "Failed to preview LoRA plan: {error}",
     "第 {index} 条提示词的 lora 无效：{error}": (
         "lora on prompt {index} is invalid: {error}"
     ),

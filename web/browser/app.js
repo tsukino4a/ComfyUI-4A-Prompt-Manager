@@ -2728,12 +2728,6 @@ function resetDetailEditing() {
   if (state.selected) void resolveDetailTextDraft(state.browserMode);
 }
 
-async function refreshDetailDisplay() {
-  if (!state.selected) return;
-  captureDetailTextDraft();
-  await resolveDetailTextDraft(state.browserMode);
-}
-
 function resizeDetailTitleInput() {
   const input = $("detail-title-input");
   const row = input.parentElement;
@@ -3620,14 +3614,6 @@ function renderItems(items, replace = false) {
     fragment.appendChild(state.viewMode === "cards" ? createCardItem(item) : createListItem(item));
   }
   list.appendChild(fragment);
-}
-
-function compareFolded(left, right) {
-  const a = String(left || "").toLocaleLowerCase();
-  const b = String(right || "").toLocaleLowerCase();
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
 }
 
 function updateDetailNavigation(loading = false) {
@@ -4747,133 +4733,88 @@ function debounce(callback, delay) {
   };
 }
 
-function setupImageDropZone() {
-  const panel = $("detail-image");
+// `matches` decides whether a drag belongs to this zone; `enabled` only gates
+// the highlight, so a matching drop is still consumed instead of opening the file.
+function bindDropZone(panel, { matches, enabled = () => true, onDrop }) {
   let dragDepth = 0;
-  const isImageDrag = (event) => hasSupportedImageTransfer(event.dataTransfer);
   const clearDragState = () => {
     dragDepth = 0;
     panel.classList.remove("dragging");
   };
-
-  panel.addEventListener("dragenter", (event) => {
-    if (!state.selected || state.uploadingImage || !isImageDrag(event)) return;
-    event.preventDefault();
-    dragDepth += 1;
-    panel.classList.add("dragging");
-  });
-  panel.addEventListener("dragover", (event) => {
-    if (!state.selected || state.uploadingImage || !isImageDrag(event)) return;
+  const accept = (event) => {
+    if (!enabled() || !matches(event)) return false;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     panel.classList.add("dragging");
-  });
-  panel.addEventListener("dragleave", () => {
-    dragDepth = Math.max(0, dragDepth - 1);
-    if (!dragDepth) panel.classList.remove("dragging");
-  });
-  panel.addEventListener("drop", async (event) => {
-    if (!isImageDrag(event)) return;
-    event.preventDefault();
-    clearDragState();
-    const selectedKey = state.selectedKey;
-    const requestId = ++state.imageDropRequestId;
-    try {
-      const file = await imageFileFromTransfer(event.dataTransfer);
-      if (requestId !== state.imageDropRequestId || selectedKey !== state.selectedKey) return;
-      if (!file) {
-        toast(t("拖入的资产不是支持的图片"), "error");
-        return;
-      }
-      setImageDraft(file);
-    } catch (error) {
-      if (requestId !== state.imageDropRequestId || selectedKey !== state.selectedKey) return;
-      toast(t("资产图片读取失败：{error}", { error: error.message || error }), "error");
-    }
-  });
-  document.addEventListener("dragend", clearDragState);
-}
-
-function setupCreateImageDropZone() {
-  const panel = $("add-prompt-image-drop");
-  let dragDepth = 0;
-  const isImageDrag = (event) => hasSupportedImageTransfer(event.dataTransfer);
-  const clearDragState = () => {
-    dragDepth = 0;
-    panel.classList.remove("dragging");
+    return true;
   };
   panel.addEventListener("dragenter", (event) => {
-    if (!isImageDrag(event)) return;
-    event.preventDefault();
-    dragDepth += 1;
-    panel.classList.add("dragging");
+    if (accept(event)) dragDepth += 1;
   });
-  panel.addEventListener("dragover", (event) => {
-    if (!isImageDrag(event)) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    panel.classList.add("dragging");
-  });
-  panel.addEventListener("dragleave", () => {
-    dragDepth = Math.max(0, dragDepth - 1);
-    if (!dragDepth) panel.classList.remove("dragging");
-  });
-  panel.addEventListener("drop", async (event) => {
-    if (!isImageDrag(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    clearDragState();
-    const requestId = ++state.createMetadataRequestId;
-    try {
-      const file = await imageFileFromTransfer(event.dataTransfer);
-      if (requestId !== state.createMetadataRequestId) return;
-      if (!file) {
-        setCreateImageStatus(t("拖入的文件不是支持的图片"), "error");
-        return;
-      }
-      await setCreateImage(file);
-    } catch (error) {
-      if (requestId !== state.createMetadataRequestId) return;
-      setCreateImageStatus(t("资产图片读取失败：{error}", { error: error.message || error }), "error");
-    }
-  });
-  document.addEventListener("dragend", clearDragState);
-}
-
-function setupImportPromptDropZone() {
-  const panel = $("import-prompts-drop");
-  let dragDepth = 0;
-  const isFileDrag = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
-  const clearDragState = () => {
-    dragDepth = 0;
-    panel.classList.remove("dragging");
-  };
-  panel.addEventListener("dragenter", (event) => {
-    if (!isFileDrag(event)) return;
-    event.preventDefault();
-    dragDepth += 1;
-    panel.classList.add("dragging");
-  });
-  panel.addEventListener("dragover", (event) => {
-    if (!isFileDrag(event)) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    panel.classList.add("dragging");
-  });
+  panel.addEventListener("dragover", accept);
   panel.addEventListener("dragleave", () => {
     dragDepth = Math.max(0, dragDepth - 1);
     if (!dragDepth) panel.classList.remove("dragging");
   });
   panel.addEventListener("drop", (event) => {
-    if (!isFileDrag(event)) return;
+    if (!matches(event)) return;
     event.preventDefault();
     event.stopPropagation();
     clearDragState();
-    const file = Array.from(event.dataTransfer?.files || []).find(looksLikeImportFile);
-    if (file) selectImportFile(file);
-    else setModalStatus("import-prompts-status", t("拖入的文件不是 JSON 或 TXT"), "error");
+    onDrop(event.dataTransfer);
   });
   document.addEventListener("dragend", clearDragState);
+}
+
+const isImageDrag = (event) => hasSupportedImageTransfer(event.dataTransfer);
+
+function setupImageDropZone() {
+  bindDropZone($("detail-image"), {
+    matches: isImageDrag,
+    enabled: () => Boolean(state.selected) && !state.uploadingImage,
+    onDrop: async (dataTransfer) => {
+      const selectedKey = state.selectedKey;
+      const requestId = ++state.imageDropRequestId;
+      const stale = () => requestId !== state.imageDropRequestId || selectedKey !== state.selectedKey;
+      try {
+        const file = await imageFileFromTransfer(dataTransfer);
+        if (stale()) return;
+        if (file) setImageDraft(file);
+        else toast(t("拖入的资产不是支持的图片"), "error");
+      } catch (error) {
+        if (!stale()) toast(t("资产图片读取失败：{error}", { error: error.message || error }), "error");
+      }
+    },
+  });
+}
+
+function setupCreateImageDropZone() {
+  bindDropZone($("add-prompt-image-drop"), {
+    matches: isImageDrag,
+    onDrop: async (dataTransfer) => {
+      const requestId = ++state.createMetadataRequestId;
+      try {
+        const file = await imageFileFromTransfer(dataTransfer);
+        if (requestId !== state.createMetadataRequestId) return;
+        if (file) await setCreateImage(file);
+        else setCreateImageStatus(t("拖入的文件不是支持的图片"), "error");
+      } catch (error) {
+        if (requestId !== state.createMetadataRequestId) return;
+        setCreateImageStatus(t("资产图片读取失败：{error}", { error: error.message || error }), "error");
+      }
+    },
+  });
+}
+
+function setupImportPromptDropZone() {
+  bindDropZone($("import-prompts-drop"), {
+    matches: (event) => Array.from(event.dataTransfer?.types || []).includes("Files"),
+    onDrop: (dataTransfer) => {
+      const file = Array.from(dataTransfer?.files || []).find(looksLikeImportFile);
+      if (file) selectImportFile(file);
+      else setModalStatus("import-prompts-status", t("拖入的文件不是 JSON 或 TXT"), "error");
+    },
+  });
 }
 
 function populateSimpleSelect(select, values, selectedValue, emptyLabel = t("暂无可用选项")) {
