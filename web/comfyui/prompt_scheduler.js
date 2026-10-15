@@ -722,6 +722,9 @@ app.registerExtension({
       const originalOnRemoved = node.onRemoved;
       node.onRemoved = function () {
         disposeSendTarget();
+        resizeObserver.disconnect();
+        clearTimeout(persistTimer);
+        if (inputLayoutFrame) cancelAnimationFrame(inputLayoutFrame);
         scheduleSendTargetRefresh();
         return originalOnRemoved?.apply(this, arguments);
       };
@@ -1523,11 +1526,22 @@ app.registerExtension({
                   const settingsPlan = settingsApplyEnabled(conf)
                     ? (data.settings_plans?.[0] || null)
                     : null;
-                  let settingsBaseline = null;
+                  const previousRunId = runWidgetLocal?.value;
+                  const previousBeforeQueued = runWidgetLocal?.beforeQueued;
+                  const restore = {
+                    schedulerNode,
+                    runWidgetLocal,
+                    previousRunId,
+                    previousBeforeQueued,
+                    loader,
+                    baseLoraText,
+                    settingsBaseline: null,
+                  };
+                  restores.push(restore);
                   // Plain text / no card settings → empty plan. Must not apply
                   // (that would flip Bypass OFF before serialize).
                   if (settingsPlanNonempty(settingsPlan)) {
-                    settingsBaseline = {
+                    const settingsBaseline = {
                       parameters: snapshotNodeWidgets(findInputParametersTarget(schedulerNode)),
                       doubleSample: snapshotNodeWidgets(
                         findDoubleSampleParametersTarget(schedulerNode),
@@ -1550,13 +1564,12 @@ app.registerExtension({
                         });
                       }
                     }
+                    restore.settingsBaseline = settingsBaseline;
                     await applySettingsPlanFromPayload(schedulerNode, settingsPlan, {
                       applyModels: Boolean(conf.settings_apply_models),
                       applyParameters: Boolean(conf.settings_apply_parameters),
                     });
                   }
-                  const previousRunId = runWidgetLocal?.value;
-                  const previousBeforeQueued = runWidgetLocal?.beforeQueued;
                   const applyForSerialize = () => {
                     if (runWidgetLocal) writeRunId(schedulerNode, runWidgetLocal, runId);
                     if (loader && nextLoraText !== baseLoraText) {
@@ -1570,15 +1583,6 @@ app.registerExtension({
                       return previousBeforeQueued?.apply(runWidgetLocal, beforeArgs);
                     };
                   }
-                  restores.push({
-                    schedulerNode,
-                    runWidgetLocal,
-                    previousRunId,
-                    previousBeforeQueued,
-                    loader,
-                    baseLoraText,
-                    settingsBaseline,
-                  });
                 } catch (error) {
                   console.warn("[4A Scheduler] settings/LoRA append skipped for single queue", error);
                 }

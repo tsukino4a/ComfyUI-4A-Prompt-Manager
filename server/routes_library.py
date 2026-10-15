@@ -7,7 +7,7 @@ import logging
 import mimetypes
 from io import BytesIO
 
-from aiohttp import web
+from aiohttp import BodyPartReader, web
 
 try:
     from ..integrations.comfyui.external_wildcards import (
@@ -685,6 +685,20 @@ async def handle_image(request: web.Request) -> web.Response:
     )
 
 
+async def _read_image_part(part: BodyPartReader) -> bytes | None:
+    """Read one multipart image field, or None when it exceeds the size limit."""
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        chunk = await part.read_chunk(size=64 * 1024)
+        if not chunk:
+            return b"".join(chunks)
+        size += len(chunk)
+        if size > MAX_PREVIEW_IMAGE_BYTES:
+            return None
+        chunks.append(chunk)
+
+
 async def handle_update_image(request: web.Request) -> web.Response:
     if not request.content_type.startswith("multipart/"):
         return _json_error(tr("图片上传格式无效"))
@@ -697,17 +711,9 @@ async def handle_update_image(request: web.Request) -> web.Response:
             if part.name == "key":
                 key = (await part.text()).strip()
             elif part.name == "image":
-                chunks: list[bytes] = []
-                size = 0
-                while True:
-                    chunk = await part.read_chunk(size=64 * 1024)
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    if size > MAX_PREVIEW_IMAGE_BYTES:
-                        return _json_error(tr("图片不能超过 32 MB"), 413)
-                    chunks.append(chunk)
-                image_data = b"".join(chunks)
+                image_data = await _read_image_part(part)
+                if image_data is None:
+                    return _json_error(tr("图片不能超过 32 MB"), 413)
     except Exception:
         return _json_error(tr("图片上传格式无效"))
 
@@ -739,17 +745,9 @@ async def handle_image_metadata(request: web.Request) -> web.Response:
         async for part in reader:
             if part.name != "image":
                 continue
-            chunks: list[bytes] = []
-            size = 0
-            while True:
-                chunk = await part.read_chunk(size=64 * 1024)
-                if not chunk:
-                    break
-                size += len(chunk)
-                if size > MAX_PREVIEW_IMAGE_BYTES:
-                    return _json_error(tr("图片不能超过 32 MB"), 413)
-                chunks.append(chunk)
-            image_data = b"".join(chunks)
+            image_data = await _read_image_part(part)
+            if image_data is None:
+                return _json_error(tr("图片不能超过 32 MB"), 413)
     except Exception:
         return _json_error(tr("图片上传格式无效"))
     if not image_data:

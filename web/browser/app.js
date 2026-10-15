@@ -259,7 +259,11 @@ function applyChromeToUi() {
 
 async function switchWorkflowChrome(nextKey) {
   const key = normalizeWorkflowKey(nextKey);
-  if (key === chromeWorkflowKey || chromeSwitching) return;
+  if (chromeSwitching) {
+    pendingWorkflowKey = key;
+    return;
+  }
+  if (key === chromeWorkflowKey) return;
   chromeSwitching = true;
   try {
     persistChrome();
@@ -274,19 +278,24 @@ async function switchWorkflowChrome(nextKey) {
   } finally {
     chromeSwitching = false;
   }
+  const pending = pendingWorkflowKey;
+  pendingWorkflowKey = "";
+  if (pending) await switchWorkflowChrome(pending);
 }
 
 function watchWorkflowKey() {
   const host = comfyHostWindow();
   if (!host) return;
-  const onChange = (key) => {
-    if (!key) return;
-    void switchWorkflowChrome(key);
+  const onChange = (event) => {
+    const key = event?.detail?.key || host.__pm4aBrowserWorkflowKey;
+    if (key) void switchWorkflowChrome(key);
   };
-  host.addEventListener("pm4a-browser-workflow", (event) => {
-    onChange(event?.detail?.key || host.__pm4aBrowserWorkflowKey);
-  });
-  host.setInterval(() => onChange(resolveCurrentWorkflowKey()), 800);
+  host.addEventListener("pm4a-browser-workflow", onChange);
+  window.addEventListener(
+    "pagehide",
+    () => host.removeEventListener("pm4a-browser-workflow", onChange),
+    { once: true },
+  );
 }
 
 /** Receiving-scheduler bridge published by the ComfyUI page (same origin). */
@@ -326,6 +335,7 @@ function watchSendTarget() {
 
 let chromeWorkflowKey = resolveCurrentWorkflowKey();
 let chromeSwitching = false;
+let pendingWorkflowKey = "";
 
 const state = {
   prefix: "",
@@ -3382,7 +3392,10 @@ async function loadTree() {
     renderBreadcrumbs();
   } catch (error) {
     $("library-meta").textContent = t("分类加载失败");
-    $("folder-tree").innerHTML = `<p class="tree-error">${String(error.message || error)}</p>`;
+    const message = document.createElement("p");
+    message.className = "tree-error";
+    message.textContent = String(error.message || error);
+    $("folder-tree").replaceChildren(message);
     toast(t("分类加载失败：{error}", { error: error.message || error }), "error");
   }
 }
@@ -3903,10 +3916,8 @@ async function sendSettingsApply(kind, button) {
   button.disabled = true;
   setSendStatus("");
   try {
-    const settings = readDetailSettingsDraft();
-    const lora = entriesToLoraPayload(state.detailLoraEntries)
-      || state.selected.lora
-      || emptyLoraPayload();
+    const settings = storedCardSettings(state.selected);
+    const lora = state.selected.lora || emptyLoraPayload();
     await api("/pm4a/api/settings/apply", {
       method: "POST",
       body: JSON.stringify({
@@ -3939,8 +3950,7 @@ async function sendNaiSettings(button) {
   button.disabled = true;
   setSendStatus("");
   try {
-    const naiForm = $("detail-nai-settings-form");
-    const nai = naiApplyPayload(readNaiForm(naiForm), readSharedSizeFromForm(naiForm));
+    const nai = naiApplyPayload(state.selected.nai || {}, state.selected.parameters);
     await api("/pm4a/api/nai/settings/apply", {
       method: "POST",
       body: JSON.stringify({ nai }),

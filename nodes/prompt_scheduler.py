@@ -13,6 +13,7 @@ except ImportError:  # standalone import check
 
 
 _EXTERNAL_TRACK_PREFIX = "pm4a_track_"
+_MAX_NEGATIVE_NESTING = 8
 
 
 class _FlexibleStringInputs(dict):
@@ -27,6 +28,46 @@ class _FlexibleStringInputs(dict):
 
 def _external_track_input_name(track_id: str) -> str:
     return f"{_EXTERNAL_TRACK_PREFIX}{str(track_id).encode('utf-8').hex()}"
+
+
+def _expand_companion_negatives(
+    negatives,
+    *,
+    track_id: str,
+    mode: str,
+    seed: int,
+    execution_index: int,
+    resolver,
+    depth: int = 1,
+) -> list[str]:
+    """Expand selected cards' negatives, including negatives those expansions select."""
+    if negatives and depth > _MAX_NEGATIVE_NESTING:
+        raise ValueError("负面提示词嵌套过深，可能存在循环引用")
+    parts: list[str] = []
+    for index, text in enumerate(negatives):
+        child_id = f"{track_id}:negative:{index}"
+        result = wc.expand_prompt(
+            text,
+            seed=seed,
+            mode=mode,
+            execution_index=execution_index,
+            track_id=child_id,
+            resolver=resolver,
+        )
+        if result.text.strip():
+            parts.append(result.text)
+        parts.extend(
+            _expand_companion_negatives(
+                result.negatives,
+                track_id=child_id,
+                mode=mode,
+                seed=seed,
+                execution_index=execution_index,
+                resolver=resolver,
+                depth=depth + 1,
+            )
+        )
+    return parts
 
 
 class PromptScheduler4A:
@@ -154,18 +195,16 @@ class PromptScheduler4A:
                         }
                     )
                     positive_parts.append(track_prompt)
-                for negative_index, selected_negative in enumerate(expanded.negatives):
-                    negative_result = wc.expand_prompt(
-                        selected_negative,
-                        seed=selection_seed,
+                companion_negatives.extend(
+                    _expand_companion_negatives(
+                        expanded.negatives,
+                        track_id=track["id"],
                         mode=track["mode"],
+                        seed=selection_seed,
                         execution_index=execution_index,
-                        track_id=f"{track['id']}:negative:{negative_index}",
                         resolver=resolver,
                     )
-                    if negative_result.text.strip():
-                        companion_negatives.append(negative_result.text)
-                    companion_negatives.extend(negative_result.negatives)
+                )
 
             fixed_negative_result = wc.expand_prompt(
                 negative_text,
@@ -178,7 +217,14 @@ class PromptScheduler4A:
             positive = wc.join_positive_parts(*positive_parts)
             negative = wc.join_positive_parts(
                 fixed_negative_result.text,
-                *fixed_negative_result.negatives,
+                *_expand_companion_negatives(
+                    fixed_negative_result.negatives,
+                    track_id="fixed-negative",
+                    mode="random",
+                    seed=selection_seed,
+                    execution_index=execution_index,
+                    resolver=resolver,
+                ),
                 *companion_negatives,
             )
             prompt_json = json.dumps(

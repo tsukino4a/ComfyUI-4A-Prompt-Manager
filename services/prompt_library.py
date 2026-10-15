@@ -2571,9 +2571,7 @@ def _update_json_entry_locked(
     current_note = _note_dict.get(normalized_key, "")
     current_lora = dict(_lora_dict.get(normalized_key) or empty_lora_payload())
     current_settings = _copy_settings(_settings_dict.get(normalized_key))
-    current_nai = _copy_nai(_nai_dict.get(normalized_key))
-    if nai is _NAI_UNSET:
-        current_nai = _copy_nai(_read_json_prompt(source_path).get("nai"))
+    current_nai = _copy_nai(_read_json_prompt(source_path).get("nai"))
     if content is not None:
         next_content = _normalize_txt_text(content) or ""
     else:
@@ -2637,7 +2635,6 @@ def _update_json_entry_locked(
         or next_lora != current_lora
         or next_settings != current_settings
         or next_nai != current_nai
-        or nai is not _NAI_UNSET
     )
     key_changed = target_key != normalized_key
     content_changed = next_content != current_content
