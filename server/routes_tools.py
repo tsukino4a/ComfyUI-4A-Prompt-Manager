@@ -487,13 +487,8 @@ async def handle_nai_settings_apply(request: web.Request) -> web.Response:
     try:
         node_ids = _optional_nai_node_ids(data)
         scheduler_node_ids = _optional_nai_node_ids(
-            {
-                "node_ids": data.get(
-                    "scheduler_node_ids",
-                    data.get("sampler_node_ids"),
-                )
-            }
-            if "sampler_node_ids" in data or "scheduler_node_ids" in data
+            {"node_ids": data["scheduler_node_ids"]}
+            if "scheduler_node_ids" in data
             else {}
         )
     except OverflowError as exc:
