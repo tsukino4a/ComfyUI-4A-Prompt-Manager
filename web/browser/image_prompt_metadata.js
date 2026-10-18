@@ -1,8 +1,11 @@
+import { parseComfyPromptMetadata } from "./comfy_prompt_metadata.js";
+
 const SOURCE_LABELS = {
   "4a": "4A",
   novelai: "NovelAI",
   civitai: "Civitai",
   a1111: "Image Saver",
+  comfyui: "ComfyUI",
   generic: "通用",
 };
 
@@ -90,30 +93,32 @@ function looksLikeComfyWorkflow(value) {
   ));
 }
 
+/** Graph JSON candidate, or null. WebP saves keep it in EXIF as "prompt:{...}" / "workflow:{...}". */
+function comfyGraphCandidate(value) {
+  if (value && typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().replace(/^(?:prompt|workflow):/, "");
+  return trimmed.startsWith("{") || trimmed.startsWith("[") ? trimmed : null;
+}
+
 function looksLikeComfyEmbeddedGraph(value) {
-  if (value == null) return false;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) return false;
-    return looksLikeComfyApiPrompt(trimmed) || looksLikeComfyWorkflow(trimmed);
-  }
-  return looksLikeComfyApiPrompt(value) || looksLikeComfyWorkflow(value);
+  const graph = comfyGraphCandidate(value);
+  return Boolean(graph) && (looksLikeComfyApiPrompt(graph) || looksLikeComfyWorkflow(graph));
 }
 
 /**
- * Drop Comfy embedded graph blobs from the "raw metadata" view/snapshot.
+ * The "raw metadata" view/snapshot keeps ComfyUI's executed API graph (shown
+ * as "prompt") but drops the much larger UI canvas graph ("workflow").
  * Parsing still runs on the full extract; this is only what we persist/show.
  */
 export function sanitizeRawMetadata(metadata) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return {};
   const out = {};
   for (const [key, value] of Object.entries(metadata)) {
-    // Comfy embed-workflow fields: never show/persist. Real captions use
-    // parameters / pm4a_prompt_json / positive / description, etc.
-    const lower = key.toLowerCase();
-    if (lower === "workflow" || lower === "prompt") continue;
-    if (looksLikeComfyEmbeddedGraph(value)) continue;
-    out[key] = value;
+    const graph = comfyGraphCandidate(value);
+    if (key.toLowerCase() === "workflow" || (graph && looksLikeComfyWorkflow(graph))) continue;
+    if (graph && looksLikeComfyApiPrompt(graph)) out.prompt = graph;
+    else out[key] = value;
   }
   return out;
 }
@@ -930,6 +935,17 @@ function parseA1111(metadata) {
   return normalizeDocument({ ...document, models: parseA1111Models(metadata) }, sourceType);
 }
 
+function parseComfy(metadata) {
+  const parsed = parseComfyPromptMetadata(metadata);
+  if (!parsed) return null;
+  const document = promptDocument("comfyui", parsed.positive, parsed.negative, parsed.parameters);
+  return normalizeDocument({
+    ...document,
+    models: parsed.models,
+    loras: { text: parsed.loras.join(" "), hashes: [] },
+  }, "comfyui");
+}
+
 function mergeParameters(document, parameters) {
   if (!document || !parameters) return document;
   return normalizeDocument({
@@ -1389,7 +1405,10 @@ export async function readImagePromptDocument(file, metadata = {}) {
 
   return enrichLocalCivitaiLoras(
     enrichDoubleSampleMetadata(
-      enrichExternalMetadata(parseA1111(metadata) || parseGeneric(metadata), metadata),
+      enrichExternalMetadata(
+        parseA1111(metadata) || parseComfy(metadata) || parseGeneric(metadata),
+        metadata,
+      ),
       metadata,
     ),
     metadata,

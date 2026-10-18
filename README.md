@@ -9,7 +9,12 @@ Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
-**Current release: 1.5.0**
+**Current release: 1.5.1**
+
+- Image metadata reading supports ComfyUI's native format: when no 4APM or A1111 metadata is present, prompts, sampler settings, models, and LoRAs are read from the executed graph ComfyUI saves by itself (PNG / WebP)
+- The full-metadata view shows ComfyUI's executed graph (`prompt`) while still hiding the canvas data (`workflow`)
+
+**1.5.0**
 
 - Adds a workflow-level **receiving Scheduler**: Browser, Prompt Display, and Meta Apply pick the target by `prompt_json` wire > dropdown choice > the only Scheduler; with several Schedulers you can choose one or all, and the choice is saved with the workflow
 - Fixes Image Saver no longer detecting the base model when no model name is given (it again uses the only Checkpoint / UNet upstream of `images`)
@@ -87,7 +92,7 @@ NAI generation nodes have moved to the standalone [ComfyUI-4A-NovelAI](https://g
 
 ### Metadata reuse (Meta Loader & Meta Apply)
 
-Read prompts and params from common image formats. Drop images from the Browser UI, outside the app, or ComfyUI assets; one click to reuse embedded prompts, sampler settings, and LoRA stacks (LoRA apply needs [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager)). Meta Apply has separate toggles for model, LoRA, inference parameters, and prompt. Applying parameters also syncs Bypass Switch from whether double-sample fields are present.
+Read prompts and params from common image formats. Drop images from the Browser UI, outside the app, or ComfyUI assets; one click to reuse embedded prompts, sampler settings, and LoRA stacks (LoRA apply needs [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager)). Meta Apply has separate toggles for model, LoRA, inference parameters, and prompt. Applying parameters also syncs Bypass Switch from whether double-sample fields are present. Metadata is recognized in the order 4APM → NovelAI → A1111 → ComfyUI native, so images saved only by the official save nodes still yield prompts, parameters, models, and LoRAs from ComfyUI's executed graph.
 
 ![Meta Apply](docs/images/meta_apply.png)
 

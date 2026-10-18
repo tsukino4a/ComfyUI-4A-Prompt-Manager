@@ -9,7 +9,12 @@
 
 面向 ComfyUI 的文件夹提示词库与调度器：浏览/编辑 Wildcard 与 JSON 卡片（LoRA + 稀疏生成设置）、多轨拼装提示词、Wildcard 批量时自动套用设置、从图片元数据回填，并保存带便携参数的生成结果。
 
-**当前版本：1.5.0**
+**当前版本：1.5.1**
+
+- 图片元数据读取支持 ComfyUI 原生格式：没有 4APM 和 A1111 元数据时，从 ComfyUI 自带保存的执行图中读取正负面提示词、推理参数、模型和 LoRA（PNG / WebP）
+- 完整元数据视图会显示 ComfyUI 执行图（`prompt`），画布数据（`workflow`）仍然隐藏
+
+**1.5.0**
 
 - 增加工作流级「接收调度器」：Browser、Prompt Display、Meta Apply 发送提示词时，按「`prompt_json` 连线 > 下拉选择 > 唯一的 Scheduler」决定目标；有多个 Scheduler 时可选其中一个或全部，选择随工作流保存
 - 修复图像保存器未填写模型名时不再自动识别主模型的问题（重新使用 `images` 上游唯一的 Checkpoint / UNet）
@@ -87,7 +92,7 @@ NAI 生成节点已迁移到独立的 [ComfyUI-4A-NovelAI](https://github.com/ts
 
 ### 元数据复用（Meta Loader / Meta Apply）
 
-兼容常见图片格式。可从前端节点、系统外部或 ComfyUI 资产任意拖入图片；一键复用嵌入的提示词、推理参数与 LoRA（LoRA 回填需安装 [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager)）。Meta Apply 可分别开关：模型、LoRA、推理参数、提示词；套用推理参数时也会按有无双采样字段同步 Bypass Switch。
+兼容常见图片格式。可从前端节点、系统外部或 ComfyUI 资产任意拖入图片；一键复用嵌入的提示词、推理参数与 LoRA（LoRA 回填需安装 [Lora Manager](https://github.com/willmiao/ComfyUI-Lora-Manager)）。Meta Apply 可分别开关：模型、LoRA、推理参数、提示词；套用推理参数时也会按有无双采样字段同步 Bypass Switch。元数据按 4APM → NovelAI → A1111 → ComfyUI 原生格式的顺序识别；只用官方保存节点生成的图片，也能从 ComfyUI 自带的执行图里读出提示词、参数、模型和 LoRA。
 
 ![Meta Apply](docs/images/meta_apply.png)
 
