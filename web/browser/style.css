@@ -1255,6 +1255,11 @@ body.batch-mode #list-scroll.batch-marquee-active {
   object-position: center top;
 }
 
+/* Set by the ComfyUI browser node while the canvas zooms or the node is resized. */
+html.pm4a-previews-suspended .card-preview img {
+  visibility: hidden;
+}
+
 .card-placeholder {
   position: absolute;
   inset: 0;

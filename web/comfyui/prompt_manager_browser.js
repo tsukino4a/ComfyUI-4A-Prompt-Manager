@@ -8,6 +8,36 @@ const DEFAULT_NODE_SIZE = [1200, 800];
 const MIN_WIDGET_HEIGHT = 360;
 // Match browser card grid: at least ~2.1 columns at 160px min card width.
 const MIN_BROWSER_NODE_WIDTH = Math.ceil(160 * 2.1);
+const SUSPENDED_CLASS = "pm4a-previews-suspended";
+const SUSPEND_SETTLE_MS = 180;
+const settleTimers = new WeakMap();
+
+// Zooming the canvas or resizing the node repaints the whole embedded page every frame,
+// so the card previews are hidden until the gesture settles.
+function suspendPreviews(iframe) {
+  const root = iframe?.contentDocument?.documentElement;
+  if (!root) return;
+  root.classList.add(SUSPENDED_CLASS);
+  clearTimeout(settleTimers.get(iframe));
+  settleTimers.set(iframe, setTimeout(() => root.classList.remove(SUSPENDED_CLASS), SUSPEND_SETTLE_MS));
+}
+
+function suspendPreviewsWhileZooming() {
+  const canvasElement = app.canvasEl || app.canvas?.canvas;
+  if (!canvasElement) return;
+  let lastScale = app.canvas?.ds?.scale;
+  let frame = 0;
+  canvasElement.addEventListener("wheel", () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      const scale = app.canvas?.ds?.scale;
+      if (scale === lastScale) return;
+      lastScale = scale;
+      document.querySelectorAll("iframe.pm4a-browser-node-frame").forEach(suspendPreviews);
+    });
+  }, { passive: true, capture: true });
+}
 
 function clampBrowserNodeSize(size) {
   if (!Array.isArray(size)) return size;
@@ -32,6 +62,7 @@ function useBrowserNodeMinimumWidth(nodeType) {
   const originalOnResize = prototype.onResize;
   prototype.onResize = function (size) {
     clampBrowserNodeSize(size);
+    suspendPreviews(this.__pm4aBrowserFrame);
     return originalOnResize?.apply(this, arguments);
   };
 }
@@ -68,6 +99,7 @@ function attachBrowser(node) {
     "background:#101214",
   ].join(";");
   frameHost.appendChild(iframe);
+  node.__pm4aBrowserFrame = iframe;
 
   let browserWidget = null;
   const availableHeight = () => {
@@ -127,6 +159,10 @@ function scheduleBrowserAttachment(node, attempt = 0) {
 
 app.registerExtension({
   name: "ComfyUI-4A-Prompt-Manager.PromptManagerBrowser",
+
+  setup() {
+    suspendPreviewsWhileZooming();
+  },
 
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== NODE_CLASS) return;

@@ -9,7 +9,11 @@ Update #1 (Bilibili): https://www.bilibili.com/video/BV1Ccg86nErh
 
 Folder-backed prompt library and scheduler for ComfyUI: browse/edit wildcards and JSON cards (LoRAs + sparse generation settings), assemble multi-track prompts, auto-apply settings on Wildcard batch runs, reuse image metadata, and save generations with portable parameters.
 
-**Current release: 1.5.1**
+**Current release: 1.5.2**
+
+- The Browser node temporarily hides card previews while the canvas zooms or the node is being resized, and restores them as soon as the gesture stops, so zooming and resizing stay smooth
+
+**1.5.1**
 
 - Image metadata reading supports ComfyUI's native format: when no 4APM or A1111 metadata is present, prompts, sampler settings, models, and LoRAs are read from the executed graph ComfyUI saves by itself (PNG / WebP)
 - The full-metadata view shows ComfyUI's executed graph (`prompt`) while still hiding the canvas data (`workflow`)
